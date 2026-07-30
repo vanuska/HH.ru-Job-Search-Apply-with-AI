@@ -5,9 +5,9 @@
 
 import os
 import sys
-import shutil
 import subprocess
 import platform
+import shutil
 import re
 import time
 import signal
@@ -15,14 +15,133 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from dotenv import load_dotenv
-
 ROOT_DIR = Path(__file__).resolve().parent
 MODULES_DIR = ROOT_DIR / "modules"
 EXAMPLES_DIR = ROOT_DIR / "examples"
 MY_DIR = ROOT_DIR / "my"
 DATA_DIR = ROOT_DIR / "data"
 
+# Маркерный файл, указывающий, что начальная установка выполнена
+SETUP_DONE_FILE = DATA_DIR / "setup.done"
+
+# --------------------------------------------------------------------
+# Функция для проверки и установки зависимостей, а также обновлений
+# --------------------------------------------------------------------
+def find_requirements() -> Path | None:
+    """Ищет файл requirements.txt в корне или в modules."""
+    root = Path(__file__).resolve().parent
+    req = root / "requirements.txt"
+    if req.exists():
+        return req
+    mod_req = root / "modules" / "requirements.txt"
+    if mod_req.exists():
+        return mod_req
+    return None
+
+def ensure_dependencies():
+    """
+    Проверяет наличие python-dotenv.
+    - Если маркерного файла нет: выполняет полную установку (пакеты, playwright, системные зависимости).
+    - Если маркер есть: предлагает проверить и установить обновления пакетов.
+    Возвращает функцию load_dotenv.
+    """
+    # Сначала пытаемся импортировать dotenv
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        load_dotenv = None
+
+    # Если маркерного файла нет или dotenv не найден — выполняем полную установку
+    if not SETUP_DONE_FILE.exists() or load_dotenv is None:
+        print("Первый запуск или отсутствуют зависимости. Выполняется полная установка...")
+
+        # Установка Python-пакетов
+        req_file = find_requirements()
+        if req_file:
+            print(f"Установка пакетов из {req_file}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", str(req_file)])
+        else:
+            packages = [
+                "python-dotenv", "pyyaml", "playwright", "openai", "anthropic",
+                "pypdf", "python-docx", "ruamel.yaml"
+            ]
+            print("Установка минимального набора пакетов:", ", ".join(packages))
+            subprocess.check_call([sys.executable, "-m", "pip", "install"] + packages)
+
+        # Установка браузеров Playwright
+        print("Установка браузеров Playwright...")
+        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+
+        # Системные зависимости для Linux
+        if platform.system() == "Linux":
+            print("Установка системных зависимостей Playwright...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "playwright", "install-deps", "chromium"])
+            except subprocess.CalledProcessError:
+                print("Не удалось установить системные зависимости через playwright. Попытка вручную...")
+                try:
+                    subprocess.check_call(["sudo", "apt", "install", "-y",
+                                           "libnspr4", "libnss3", "libx11-6", "libx11-xcb1",
+                                           "libxcb1", "libxcomposite1", "libxcursor1", "libxdamage1",
+                                           "libxext6", "libxfixes3", "libxi6", "libxrandr2",
+                                           "libxrender1", "libxss1", "libxtst6", "libgbm1",
+                                           "libasound2", "libpango-1.0-0", "libcairo2", "libatk1.0-0",
+                                           "libatk-bridge2.0-0", "libgtk-3-0", "libdrm2", "libxshmfence1"])
+                except:
+                    print("Не удалось установить системные зависимости вручную. Возможны проблемы с запуском браузера.")
+
+            # Установка xvfb, если нет графического интерфейса
+            if not os.environ.get("DISPLAY"):
+                try:
+                    subprocess.check_call(["sudo", "apt", "install", "-y", "xvfb"])
+                    print("xvfb установлен.")
+                except:
+                    print("Не удалось установить xvfb. Запуск в headless-режиме может не работать.")
+
+        # Создаём маркерный файл
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        SETUP_DONE_FILE.touch()
+        print("Начальная установка завершена.\n")
+
+        # Повторно импортируем dotenv
+        from dotenv import load_dotenv
+        return load_dotenv
+
+    # Если маркер есть и dotenv уже загружен – проверяем обновления
+    if load_dotenv is not None:
+        print("Обнаружена существующая установка.")
+        check = input("Проверить наличие обновлений пакетов? (Y/N): ").strip().lower()
+        if check in ('y', 'yes', 'да'):
+            print("Проверка обновлений...")
+            req_file = find_requirements()
+            if req_file:
+                print(f"Обновление пакетов из {req_file}...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "-r", str(req_file)])
+            else:
+                packages = ["python-dotenv", "pyyaml", "playwright", "openai", "anthropic",
+                            "pypdf", "python-docx", "ruamel.yaml"]
+                print("Обновление основных пакетов...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade"] + packages)
+
+            # Также можно обновить браузеры Playwright
+            update_browser = input("Обновить браузеры Playwright? (Y/N): ").strip().lower()
+            if update_browser in ('y', 'yes', 'да'):
+                subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+            print("Обновление завершено.\n")
+        else:
+            print("Проверка обновлений пропущена.\n")
+
+        return load_dotenv
+
+    # Если по каким-то причинам не удалось, пробуем ещё раз
+    from dotenv import load_dotenv
+    return load_dotenv
+
+
+# Загружаем dotenv (функция будет выполнена при импорте)
+load_dotenv = ensure_dependencies()
+
+# Остальные импорты
 CORE_SCRIPTS = [
     "auto_apply.py",
     "hh_login.py",
@@ -46,6 +165,8 @@ class SetupTool:
         self.has_gui = self._check_gui()
         self._ensure_directories()
         self._copy_missing_files()
+        # Определяем, нужно ли показывать пункт "Начальная установка"
+        self.setup_done = SETUP_DONE_FILE.exists()
 
     def _check_gui(self):
         """Проверяет наличие графического интерфейса"""
@@ -77,6 +198,28 @@ class SetupTool:
             shutil.copy2(src, dst)
             print(f"Скопирован {CONFIG_EXAMPLE} из examples в корень")
 
+    def get_menu_items(self):
+        """Возвращает список пунктов меню с номерами, описаниями и методами."""
+        items = []
+        # Если установка не выполнена, добавляем пункт 1
+        if not self.setup_done:
+            items.append((1, "Начальная установка (первый раз)", self._step_install_deps))
+            base = 2
+        else:
+            base = 1
+
+        items.append((base,     "Настройка Telegram бота для уведомлений (один раз)", self._step_setup_telegram))
+        items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
+        items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
+        items.append((base+3,   "Выбор доступных LLM", self._step_check_models))
+        items.append((base+4,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
+        items.append((base+5,   "Настройка промта для AI CL", self._step_setup_prompt))
+        items.append((base+6,   "Тест генерации AI CL", self._step_test_letter))
+        items.append((base+7,   "Запуск || Поиск работы", self._step_run_apply))
+        items.append((base+8,   "Работа с базой данных (отклики, ошибки)", self._step_clean_db))
+        items.append((base+9,   "Выход", self._exit))
+        return items
+
     def show_menu(self):
         os.system('cls' if os.name == 'nt' else 'clear')
         print("=" * 70)
@@ -85,17 +228,10 @@ class SetupTool:
         print()
         print("Доступные шаги:")
         print()
-        print("  1. Начальная установка (первый раз)")
-        print("  2. Настройка Telegram бота для уведомлений (один раз)")
-        print("  3. Авторизация на HH.ru с сохранением сессии (один раз)")
-        print("  4. Выбор и настройка LLM (env)")
-        print("  5. Выбор доступных LLM")
-        print("  6. Импорт резюме для AI Cover Letter")
-        print("  7. Настройка промта для AI CL")
-        print("  8. Тест генерации AI CL")
-        print("  9. Запуск || Поиск работы")
-        print(" 10. Работа с базой данных (отклики, ошибки)")
-        print(" 11. Выход")
+
+        for num, desc, _ in self.get_menu_items():
+            print(f"  {num:2d}. {desc}")
+
         print()
         print("-" * 70)
         print("Рекомендуется выполнять шаги по порядку")
@@ -123,140 +259,34 @@ class SetupTool:
         print()
 
     def run_step(self, step_number: int):
-        steps = {
-            1: self._step_install_deps,
-            2: self._step_setup_telegram,
-            3: self._step_hh_login,
-            4: self._step_setup_env,
-            5: self._step_check_models,
-            6: self._step_create_profile,
-            7: self._step_setup_prompt,
-            8: self._step_test_letter,
-            9: self._step_run_apply,
-            10: self._step_clean_db,
-            11: self._exit,
-        }
-        if step_number in steps:
-            try:
-                steps[step_number]()
-                input("\nНажмите Enter для продолжения...")
-            except Exception as e:
-                print(f"\nОшибка при выполнении шага {step_number}: {e}")
-                input("\nНажмите Enter для продолжения...")
-        else:
-            print("Неверный номер шага")
-            input("\nНажмите Enter для продолжения...")
+        # Находим метод по номеру
+        for num, desc, method in self.get_menu_items():
+            if num == step_number:
+                try:
+                    method()
+                    input("\nНажмите Enter для продолжения...")
+                except Exception as e:
+                    print(f"\nОшибка при выполнении шага {step_number}: {e}")
+                    input("\nНажмите Enter для продолжения...")
+                return
+        print("Неверный номер шага")
+        input("\nНажмите Enter для продолжения...")
 
-    # ---------- ШАГ 1: Начальная установка ----------
+    # ---------- ШАГ: Начальная установка ----------
     def _step_install_deps(self):
         print("\n" + "=" * 60)
-        print("ШАГ 1: НАЧАЛЬНАЯ УСТАНОВКА (ПЕРВЫЙ РАЗ)")
+        print("НАЧАЛЬНАЯ УСТАНОВКА (ПЕРВЫЙ РАЗ)")
         print("=" * 60)
+        print("Этот шаг уже был выполнен автоматически при первом запуске.")
+        print("Если вы хотите переустановить зависимости заново, удалите файл")
+        print(f"{SETUP_DONE_FILE} и перезапустите скрипт.")
+        print("Или выполните обновление через предложение при запуске.")
+        input("Нажмите Enter для возврата...")
 
-        if self.is_linux:
-            print("\nОбнаружена система Linux. Установка системных зависимостей...")
-            self._install_system_deps()
-
-        req_file = self.root_dir / "requirements.txt"
-        if not req_file.exists():
-            print("Файл requirements.txt не найден в корне. Проверьте modules.")
-            return
-
-        print("\nУстановка Python-зависимостей из requirements.txt...")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-                check=True,
-            )
-            print("Python-зависимости установлены")
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки Python-пакетов: {e}")
-            return
-
-        print("\nУстановка браузеров Playwright...")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                check=True,
-            )
-            print("Playwright браузеры установлены")
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки Playwright: {e}")
-
-        if self.is_linux:
-            print("\nУстановка системных зависимостей для Playwright...")
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "playwright", "install-deps", "chromium"],
-                    check=True,
-                )
-                print("Системные зависимости Playwright установлены")
-            except subprocess.CalledProcessError as e:
-                print(f"Ошибка установки зависимостей Playwright: {e}")
-                self._install_playwright_deps_manual()
-
-        if self.is_linux and not self.has_gui:
-            print("\nОбнаружена система Linux без графического интерфейса.")
-            self._ensure_xvfb()
-
-        print("\nНачальная установка завершена!")
-
-    def _install_system_deps(self):
-        deps = [
-            "libnspr4", "libnss3", "libx11-6", "libx11-xcb1", "libxcb1",
-            "libxcomposite1", "libxcursor1", "libxdamage1", "libxext6",
-            "libxfixes3", "libxi6", "libxrandr2", "libxrender1", "libxss1",
-            "libxtst6", "libgbm1", "libasound2", "libpango-1.0-0", "libcairo2",
-            "libatk1.0-0", "libatk-bridge2.0-0", "libgtk-3-0", "libdrm2",
-            "libxshmfence1", "fonts-liberation", "libappindicator3-1",
-            "libnss3-tools", "xdg-utils",
-        ]
-        print("Установка системных пакетов (может потребоваться sudo):")
-        try:
-            subprocess.run(["sudo", "apt", "update"], check=True)
-            subprocess.run(
-                ["sudo", "apt", "install", "-y"] + deps,
-                check=True,
-            )
-            print("Системные пакеты установлены")
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки системных пакетов: {e}")
-
-    def _install_playwright_deps_manual(self):
-        try:
-            subprocess.run(
-                ["sudo", "apt", "install", "-y",
-                 "libnspr4", "libnss3", "libx11-6", "libx11-xcb1",
-                 "libxcb1", "libxcomposite1", "libxcursor1", "libxdamage1",
-                 "libxext6", "libxfixes3", "libxi6", "libxrandr2",
-                 "libxrender1", "libxss1", "libxtst6", "libgbm1",
-                 "libasound2", "libpango-1.0-0", "libcairo2", "libatk1.0-0",
-                 "libatk-bridge2.0-0", "libgtk-3-0", "libdrm2", "libxshmfence1"],
-                check=True,
-            )
-            print("Системные зависимости установлены вручную")
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка ручной установки: {e}")
-
-    def _ensure_xvfb(self):
-        try:
-            subprocess.run(["which", "xvfb-run"], capture_output=True, check=True)
-            print("xvfb-run уже установлен")
-            return
-        except:
-            pass
-        print("Установка xvfb для виртуального дисплея...")
-        try:
-            subprocess.run(["sudo", "apt", "update"], check=True)
-            subprocess.run(["sudo", "apt", "install", "-y", "xvfb"], check=True)
-            print("xvfb успешно установлен")
-        except subprocess.CalledProcessError as e:
-            print(f"Не удалось установить xvfb: {e}")
-
-    # ---------- ШАГ 2: Настройка Telegram бота ----------
+    # ---------- ШАГ: Настройка Telegram бота ----------
     def _step_setup_telegram(self):
         print("\n" + "=" * 60)
-        print("ШАГ 2: НАСТРОЙКА TELEGRAM БОТА ДЛЯ УВЕДОМЛЕНИЙ (ОДИН РАЗ)")
+        print("НАСТРОЙКА TELEGRAM БОТА ДЛЯ УВЕДОМЛЕНИЙ (ОДИН РАЗ)")
         print("=" * 60)
 
         env_file = self.root_dir / ".env"
@@ -293,7 +323,6 @@ class SetupTool:
             print("Настройка отменена.")
 
     def _send_test_telegram(self, token: str, chat_id: str) -> bool:
-        """Отправляет тестовое сообщение в Telegram."""
         try:
             import urllib.request
             import json
@@ -306,22 +335,20 @@ class SetupTool:
             print(f"Ошибка отправки: {e}")
             return False
 
-    # ---------- ШАГ 3: Авторизация на HH.ru ----------
+    # ---------- ШАГ: Авторизация на HH.ru ----------
     def _step_hh_login(self):
         print("\n" + "=" * 60)
-        print("ШАГ 3: АВТОРИЗАЦИЯ НА HH.RU С СОХРАНЕНИЕМ СЕССИИ (ОДИН РАЗ)")
+        print("АВТОРИЗАЦИЯ НА HH.RU С СОХРАНЕНИЕМ СЕССИИ (ОДИН РАЗ)")
         print("=" * 60)
         self._run_script("hh_login.py")
 
-    # ---------- ШАГ 4: Выбор и настройка LLM (env) ----------
+    # ---------- ШАГ: Выбор и настройка LLM (env) ----------
     def _step_setup_env(self):
         print("\n" + "=" * 60)
-        print("ШАГ 4: ВЫБОР И НАСТРОЙКА LLM (ENV)")
+        print("ВЫБОР И НАСТРОЙКА LLM (ENV)")
         print("=" * 60)
 
         env_file = self.root_dir / ".env"
-
-        # Загружаем существующие переменные, если файл есть
         existing_vars = {}
         if env_file.exists():
             content = env_file.read_text(encoding='utf-8')
@@ -340,12 +367,6 @@ class SetupTool:
         print("\nБудут сохранены все существующие переменные, обновятся только те, что вы укажете.")
         print("Оставьте поле пустым, чтобы не менять значение.")
 
-        # HH_USER_AGENT закомментирован
-        # email = input("\nВведите ваш email для HH_USER_AGENT: ").strip()
-        # if not email:
-        #     email = "your-email@example.com"
-        #     print(f"Используем заглушку: {email}")
-
         print("\nВыбор LLM провайдера:")
         print("1. OpenRouter (рекомендуется, бесплатные модели)")
         print("2. OpenAI (платные модели)")
@@ -359,7 +380,6 @@ class SetupTool:
         if not provider_choice:
             provider_choice = default_choice
 
-        # Загружаем существующий .env в словарь для обновления
         env_data = existing_vars.copy()
 
         if provider_choice == "1":
@@ -391,7 +411,7 @@ class SetupTool:
                 if custom:
                     env_data["OPENROUTER_MODEL"] = custom
             elif model_choice == "6":
-                pass  # оставляем как есть
+                pass
             else:
                 env_data["OPENROUTER_MODEL"] = "auto"
             print(f"Выбрана модель: {env_data.get('OPENROUTER_MODEL', 'не указана')}")
@@ -431,7 +451,7 @@ class SetupTool:
                 env_data["OPENROUTER_API_KEY"] = "none"
             env_data["OPENROUTER_MODEL"] = "auto"
 
-        # Пути к файлам — оставляем существующие или добавляем по умолчанию
+        # Пути к файлам
         if "N8N_FILES_DIR" not in env_data:
             env_data["N8N_FILES_DIR"] = ""
         if "HH_CONFIG_PATH" not in env_data:
@@ -439,177 +459,28 @@ class SetupTool:
         if "HH_STATE_DB" not in env_data:
             env_data["HH_STATE_DB"] = "data/hh_auto_apply.sqlite3"
 
-        # HH_USER_AGENT закомментирован — не добавляем
-        # if "HH_USER_AGENT" not in env_data:
-        #     env_data["HH_USER_AGENT"] = f"hh-auto-apply/1.0 ({email})"
-
-        # Сохраняем .env с сохранением всех переменных
+        # Сохраняем .env
         try:
-            lines = []
-            for key, value in env_data.items():
-                lines.append(f"{key}={value}")
+            lines = [f"{k}={v}" for k, v in env_data.items()]
             env_file.write_text("\n".join(lines), encoding="utf-8")
             print(".env файл обновлён с сохранением всех переменных")
         except Exception as e:
             print(f"Ошибка записи: {e}")
 
-    # ---------- ШАГ 5: Выбор доступных LLM ----------
+    # ---------- ШАГ: Выбор доступных LLM ----------
     def _step_check_models(self):
         print("\n" + "=" * 60)
-        print("ШАГ 5: ВЫБОР ДОСТУПНЫХ LLM")
+        print("ВЫБОР ДОСТУПНЫХ LLM")
         print("=" * 60)
+        self._run_script("check_models.py")
 
-        load_dotenv()
-        provider = os.getenv("LLM_PROVIDER", "").lower()
-
-        # Если провайдер не OpenRouter – выполняем стандартный скрипт
-        if provider != "openrouter":
-            print("Провайдер не OpenRouter. Запуск стандартной проверки...")
-            self._run_script("check_models.py")
-            return
-
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key or api_key == "none":
-            print("OPENROUTER_API_KEY не задан. Запуск стандартной проверки...")
-            self._run_script("check_models.py")
-            return
-
-        print("Получение списка моделей OpenRouter...")
-        try:
-            from openai import OpenAI
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1"
-            )
-            models_response = client.models.list()
-            model_ids = [m.id for m in models_response.data if m.id]
-        except Exception as e:
-            print(f"Ошибка получения списка моделей OpenRouter: {e}")
-            print("Запуск стандартной проверки...")
-            self._run_script("check_models.py")
-            return
-
-        if not model_ids:
-            print("Список моделей пуст. Запуск стандартной проверки...")
-            self._run_script("check_models.py")
-            return
-
-        # Определение бесплатных моделей
-        KNOWN_FREE_MODELS = {
-            "openrouter/free",
-            "openrouter/auto",
-            "openrouter/auto-beta",
-            "google/gemini-2.0-flash-exp:free",
-            "cohere/north-mini-code:free",
-            "nvidia/nemotron-3-nano-30b-a3b:free",
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-            "nvidia/nemotron-3-super-120b-a12b:free",
-            "nvidia/nemotron-3-ultra-550b-a55b:free",
-            "nvidia/nemotron-3.5-content-safety:free",
-            "nvidia/nemotron-nano-12b-v2-vl:free",
-            "nvidia/nemotron-nano-9b-v2:free",
-            "openai/gpt-oss-20b:free",
-            "poolside/laguna-m.1:free",
-            "poolside/laguna-xs-2.1:free",
-            "tencent/hy3:free",
-            "google/gemma-4-26b-a4b-it:free",
-            "google/gemma-4-31b-it:free",
-            "meta-llama/llama-3.2-3b-instruct:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "nousresearch/hermes-3-llama-3.1-405b:free",
-            "sao10k/l3-lunaris-8b:free",
-            "openai/gpt-4o-2024-08-06:free",
-            "meta-llama/llama-3.1-70b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "mistralai/mistral-nemo:free",
-            "openai/gpt-4o-mini:free",
-            "openai/gpt-4o-mini-2024-07-18:free",
-            "google/gemma-2-27b-it:free",
-        }
-
-        models_info = []
-        for model_id in model_ids:
-            is_free = (":free" in model_id) or (model_id in KNOWN_FREE_MODELS)
-            price_display = "free" if is_free else "платная/неизвестно"
-            models_info.append({
-                'id': model_id,
-                'is_free': is_free,
-                'price_display': price_display
-            })
-
-        print(f"\nДоступные модели OpenRouter (всего {len(models_info)}):")
-        for idx, info in enumerate(models_info, 1):
-            print(f"  {idx}. {info['id']} ({info['price_display']})")
-
-        print("\nВы можете сохранить модели в .env для использования в auto_apply.")
-        print("Команды:")
-        print("  'free'  - сохранить все модели, помеченные как бесплатные")
-        print("  'all'   - сохранить все модели (включая платные)")
-        print("  номера  - сохранить только выбранные модели (через запятую, например 1,3,5)")
-        print("  Enter   - пропустить сохранение")
-        choice = input("\nВаш выбор: ").strip()
-
-        if not choice:
-            print("Сохранение моделей пропущено.")
-            return
-
-        selected_models = []
-        if choice.lower() == "free":
-            selected_models = [info['id'] for info in models_info if info['is_free']]
-            print(f"Выбраны все бесплатные модели ({len(selected_models)} шт.)")
-        elif choice.lower() == "all":
-            selected_models = [info['id'] for info in models_info]
-            print(f"Выбраны все модели ({len(selected_models)} шт.)")
-        else:
-            parts = [p.strip() for p in choice.split(",") if p.strip()]
-            for part in parts:
-                try:
-                    idx = int(part) - 1
-                    if 0 <= idx < len(models_info):
-                        selected_models.append(models_info[idx]['id'])
-                    else:
-                        print(f"Номер {part} вне диапазона, пропускаем.")
-                except ValueError:
-                    print(f"Некорректный ввод '{part}', пропускаем.")
-
-        if not selected_models:
-            print("Не выбрано ни одной модели.")
-            return
-
-        # Сохраняем список выбранных моделей
-        self._update_env_var("OPENROUTER_MODELS", ",".join(selected_models))
-
-        if len(selected_models) == 1:
-            self._update_env_var("OPENROUTER_MODEL", selected_models[0])
-            print(f"Установлена модель по умолчанию: {selected_models[0]}")
-        else:
-            current_model = os.getenv("OPENROUTER_MODEL")
-            if current_model and current_model != "auto":
-                set_auto = input("Выбрано несколько моделей. Хотите установить OPENROUTER_MODEL='auto' для интерактивного выбора? (Y/N): ").strip().upper()
-                if set_auto in ["Y", "ДА"]:
-                    self._update_env_var("OPENROUTER_MODEL", "auto")
-                    print("OPENROUTER_MODEL установлен в 'auto'.")
-                else:
-                    print("OPENROUTER_MODEL оставлен без изменений.")
-            else:
-                self._update_env_var("OPENROUTER_MODEL", "auto")
-                print("OPENROUTER_MODEL установлен в 'auto' для интерактивного выбора.")
-
-        print(f"Сохранено {len(selected_models)} моделей в переменную OPENROUTER_MODELS.")
-        if len(selected_models) <= 5:
-            print("Выбранные модели:", ", ".join(selected_models))
-        else:
-            print(f"Выбрано {len(selected_models)} моделей.")
-        print("Теперь auto_apply может использовать эти модели.")
-
-    # ---------- ШАГ 6: Импорт резюме ----------
+    # ---------- ШАГ: Импорт резюме ----------
     def _step_create_profile(self):
         print("\n" + "=" * 60)
-        print("ШАГ 6: ИМПОРТ РЕЗЮМЕ ДЛЯ AI COVER LETTER")
+        print("ИМПОРТ РЕЗЮМЕ ДЛЯ AI COVER LETTER")
         print("=" * 60)
 
         profile_file = MY_DIR / "profile.md"
-
         if profile_file.exists():
             overwrite = input("profile.md уже существует. Перезаписать? (Y/N): ").strip().upper()
             if overwrite not in ["Y", "ДА"]:
@@ -715,11 +586,9 @@ class SetupTool:
                 print(f"Файл не найден: {pdf_path}")
                 return
 
-            import shutil
-            dest = MY_DIR / pdf_path.name
-            shutil.copy2(pdf_path, dest)
-            print(f"Файл скопирован в {dest}")
-            pdf_path = dest
+            shutil.copy2(pdf_path, MY_DIR / pdf_path.name)
+            print(f"Файл скопирован в {MY_DIR / pdf_path.name}")
+            pdf_path = MY_DIR / pdf_path.name
 
         elif source_choice == "3":
             home = Path.home()
@@ -751,11 +620,9 @@ class SetupTool:
                 print("Неверный ввод")
                 return
 
-            import shutil
-            dest = MY_DIR / pdf_path.name
-            shutil.copy2(pdf_path, dest)
-            print(f"Файл скопирован в {dest}")
-            pdf_path = dest
+            shutil.copy2(pdf_path, MY_DIR / pdf_path.name)
+            print(f"Файл скопирован в {MY_DIR / pdf_path.name}")
+            pdf_path = MY_DIR / pdf_path.name
 
         else:
             print("Неверный выбор")
@@ -846,11 +713,9 @@ class SetupTool:
                 print(f"Файл не найден: {doc_path}")
                 return
 
-            import shutil
-            dest = MY_DIR / doc_path.name
-            shutil.copy2(doc_path, dest)
-            print(f"Файл скопирован в {dest}")
-            doc_path = dest
+            shutil.copy2(doc_path, MY_DIR / doc_path.name)
+            print(f"Файл скопирован в {MY_DIR / doc_path.name}")
+            doc_path = MY_DIR / doc_path.name
 
         elif source_choice == "3":
             home = Path.home()
@@ -879,11 +744,9 @@ class SetupTool:
                 print("Неверный ввод")
                 return
 
-            import shutil
-            dest = MY_DIR / doc_path.name
-            shutil.copy2(doc_path, dest)
-            print(f"Файл скопирован в {dest}")
-            doc_path = dest
+            shutil.copy2(doc_path, MY_DIR / doc_path.name)
+            print(f"Файл скопирован в {MY_DIR / doc_path.name}")
+            doc_path = MY_DIR / doc_path.name
 
         else:
             print("Неверный выбор")
@@ -975,11 +838,9 @@ class SetupTool:
                 print(f"Файл не найден: {txt_path}")
                 return
 
-            import shutil
-            dest = MY_DIR / txt_path.name
-            shutil.copy2(txt_path, dest)
-            print(f"Файл скопирован в {dest}")
-            txt_path = dest
+            shutil.copy2(txt_path, MY_DIR / txt_path.name)
+            print(f"Файл скопирован в {MY_DIR / txt_path.name}")
+            txt_path = MY_DIR / txt_path.name
 
         elif source_choice == "3":
             home = Path.home()
@@ -1008,11 +869,9 @@ class SetupTool:
                 print("Неверный ввод")
                 return
 
-            import shutil
-            dest = MY_DIR / txt_path.name
-            shutil.copy2(txt_path, dest)
-            print(f"Файл скопирован в {dest}")
-            txt_path = dest
+            shutil.copy2(txt_path, MY_DIR / txt_path.name)
+            print(f"Файл скопирован в {MY_DIR / txt_path.name}")
+            txt_path = MY_DIR / txt_path.name
 
         else:
             print("Неверный выбор")
@@ -1021,17 +880,14 @@ class SetupTool:
         if txt_path and txt_path.exists():
             try:
                 content = txt_path.read_text(encoding="utf-8", errors="ignore")
-
                 if content.strip():
                     profile_file = MY_DIR / "profile.md"
                     profile_file.write_text(content, encoding="utf-8")
-
                     print(f"\nПрофиль создан из {txt_path.name}")
                     print(f"Размер: {len(content)} символов")
                     print(f"Сохранен: {profile_file}")
                 else:
                     print("Файл пуст")
-
             except Exception as e:
                 print(f"Ошибка при чтении файла: {e}")
 
@@ -1040,18 +896,13 @@ class SetupTool:
         print("ГЕНЕРАЦИЯ ПРОФИЛЯ С ПОМОЩЬЮ LLM")
         print("=" * 60)
 
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-            provider = os.getenv("LLM_PROVIDER", "openrouter")
-            model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
-            if model == "auto":
-                model = "openrouter/free"
-            print(f"Провайдер: {provider}")
-            print(f"Модель: {model}")
-            print()
-        except:
-            pass
+        load_dotenv()
+        provider = os.getenv("LLM_PROVIDER", "openrouter")
+        model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
+        if model == "auto":
+            model = "openrouter/free"
+        print(f"Провайдер: {provider}")
+        print(f"Модель: {model}\n")
 
         print("Введите информацию о себе в формате:")
         print("- Имя и контактные данные")
@@ -1076,9 +927,7 @@ class SetupTool:
         raw_data = "\n".join(lines)
 
         try:
-            from dotenv import load_dotenv
             load_dotenv()
-
             provider = os.getenv("LLM_PROVIDER", "openrouter")
 
             if provider == "openrouter":
@@ -1098,7 +947,6 @@ class SetupTool:
             else:
                 print("Используем сырые данные")
                 (MY_DIR / "profile.md").write_text(raw_data, encoding="utf-8")
-
         except Exception as e:
             print(f"Ошибка при генерации профиля: {e}")
             print("Сохраняем сырые данные")
@@ -1107,12 +955,9 @@ class SetupTool:
     def _format_with_openrouter(self, raw_data: str) -> str:
         try:
             from openai import OpenAI
-            import os
-
             api_key = os.getenv("OPENROUTER_API_KEY")
             if not api_key or api_key == "none":
                 print("OPENROUTER_API_KEY не найден или равен none")
-                print("Пожалуйста, укажите API ключ в файле .env")
                 return ""
 
             model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
@@ -1122,10 +967,7 @@ class SetupTool:
             else:
                 print(f"Используем модель из .env: {model}")
 
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1"
-            )
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
             prompt = f"""
 Преобразуй следующие данные в структурированный профиль для hh.ru.
@@ -1155,9 +997,7 @@ Email, Telegram, LinkedIn, Телефон
                 max_tokens=2000,
                 temperature=0.3
             )
-
             return response.choices[0].message.content or ""
-
         except Exception as e:
             print(f"Ошибка OpenRouter: {e}")
             return ""
@@ -1170,10 +1010,10 @@ Email, Telegram, LinkedIn, Телефон
         print("Функция временно не реализована")
         return ""
 
-    # ---------- ШАГ 7: Настройка промта ----------
+    # ---------- ШАГ: Настройка промта ----------
     def _step_setup_prompt(self):
         print("\n" + "=" * 60)
-        print("ШАГ 7: НАСТРОЙКА ПРОМТА ДЛЯ AI CL")
+        print("НАСТРОЙКА ПРОМТА ДЛЯ AI CL")
         print("=" * 60)
         prompt_file = MY_DIR / "cover_letter_prompt.md"
         if prompt_file.exists():
@@ -1202,17 +1042,17 @@ Email, Telegram, LinkedIn, Телефон
         prompt_file.write_text(template, encoding="utf-8")
         print("cover_letter_prompt.md создан")
 
-    # ---------- ШАГ 8: Тест генерации AI CL ----------
+    # ---------- ШАГ: Тест генерации AI CL ----------
     def _step_test_letter(self):
         print("\n" + "=" * 60)
-        print("ШАГ 8: ТЕСТ ГЕНЕРАЦИИ AI CL")
+        print("ТЕСТ ГЕНЕРАЦИИ AI CL")
         print("=" * 60)
         self._run_script("test_letter.py")
 
-    # ---------- ШАГ 9: Запуск поиска работы ----------
+    # ---------- ШАГ: Запуск поиска работы ----------
     def _step_run_apply(self):
         print("\n" + "=" * 60)
-        print("ШАГ 9: ЗАПУСК || ПОИСК РАБОТЫ")
+        print("ЗАПУСК || ПОИСК РАБОТЫ")
         print("=" * 60)
 
         if self._is_schedule_running():
@@ -1329,7 +1169,7 @@ Email, Telegram, LinkedIn, Телефон
             api_key = api_key_match.group(1).strip() if api_key_match else None
             if not api_key or api_key == "none":
                 print("\nОШИБКА: в .env не указан OPENROUTER_API_KEY или он равен 'none'.")
-                print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 4).")
+                print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 3).")
                 input("Нажмите Enter для продолжения...")
                 return
 
@@ -1396,7 +1236,7 @@ Email, Telegram, LinkedIn, Телефон
                         args.append("--headless")
                     print("Добавлен флаг --headless (браузер будет невидимым)")
 
-        # Передаём также Telegram-переменные, если они заданы
+        # Передаём Telegram-переменные
         if env_path.exists():
             env_content = env_path.read_text(encoding='utf-8')
             tg_token = re.search(r'^TELEGRAM_BOT_TOKEN=(.*)$', env_content, re.MULTILINE)
@@ -1420,14 +1260,14 @@ Email, Telegram, LinkedIn, Телефон
         else:
             self._run_script("auto_apply.py", args, use_xvfb=use_xvfb, extra_env=extra_env)
 
-    # ---------- ШАГ 10: Работа с базой данных ----------
+    # ---------- ШАГ: Работа с базой данных ----------
     def _step_clean_db(self):
         print("\n" + "=" * 60)
-        print("ШАГ 10: РАБОТА С БАЗОЙ ДАННЫХ (ОТКЛИКИ, ОШИБКИ)")
+        print("РАБОТА С БАЗОЙ ДАННЫХ (ОТКЛИКИ, ОШИБКИ)")
         print("=" * 60)
         self._run_script("clean_db.py")
 
-    # ---------- ШАГ 11: Выход ----------
+    # ---------- Выход ----------
     def _exit(self):
         print("\nДо свидания!")
         sys.exit(0)
@@ -1527,7 +1367,6 @@ Email, Telegram, LinkedIn, Телефон
 
     # ---------- БЕЗОПАСНОЕ ОБНОВЛЕНИЕ .ENV ----------
     def _update_env_var(self, key: str, value: str):
-        """Обновляет или добавляет переменную в .env, сохраняя все остальные строки."""
         env_path = self.root_dir / ".env"
         if not env_path.exists():
             env_path.write_text(f"{key}={value}\n", encoding='utf-8')
@@ -1625,25 +1464,16 @@ Email, Telegram, LinkedIn, Телефон
 
 
 def main():
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print("=" * 70)
-    print("HH-AUTO-APPLY SETUP TOOL")
-    print("=" * 70)
-    print("\nИнструмент для настройки проекта")
-    print("Все шаги можно выполнять последовательно или выборочно\n")
+    # ensure_dependencies() уже вызвана при импорте, поэтому просто запускаем меню
     tool = SetupTool()
     while True:
         tool.show_menu()
         try:
-            choice = input("\nВыберите шаг (1-11): ").strip()
+            choice = input("\nВыберите шаг: ").strip()
             if not choice:
                 continue
             step = int(choice)
-            if 1 <= step <= 11:
-                tool.run_step(step)
-            else:
-                print("Введите число от 1 до 11")
-                input("Нажмите Enter...")
+            tool.run_step(step)
         except ValueError:
             print("Введите число")
             input("Нажмите Enter...")
