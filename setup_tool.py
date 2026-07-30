@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Инструмент для настройки и управления Job-search
+Инструмент для настройки и управления job-search
 """
 
 import os
@@ -25,7 +25,7 @@ DATA_DIR = ROOT_DIR / "data"
 SETUP_DONE_FILE = DATA_DIR / "setup.done"
 
 # --------------------------------------------------------------------
-# Функция для проверки и установки зависимостей, а также обновлений
+# Функция для проверки и установки зависимостей при первом запуске
 # --------------------------------------------------------------------
 def find_requirements() -> Path | None:
     """Ищет файл requirements.txt в корне или в modules."""
@@ -41,8 +41,7 @@ def find_requirements() -> Path | None:
 def ensure_dependencies():
     """
     Проверяет наличие python-dotenv.
-    - Если маркерного файла нет: выполняет полную установку (пакеты, playwright, системные зависимости).
-    - Если маркер есть: предлагает проверить и установить обновления пакетов.
+    Если маркерного файла нет: выполняет полную установку (пакеты, playwright, системные зависимости).
     Возвращает функцию load_dotenv.
     """
     # Сначала пытаемся импортировать dotenv
@@ -107,30 +106,8 @@ def ensure_dependencies():
         from dotenv import load_dotenv
         return load_dotenv
 
-    # Если маркер есть и dotenv уже загружен – проверяем обновления
+    # Если маркер есть и dotenv уже загружен – просто возвращаем
     if load_dotenv is not None:
-        print("Обнаружена существующая установка.")
-        check = input("Проверить наличие обновлений пакетов? (Y/N): ").strip().lower()
-        if check in ('y', 'yes', 'да'):
-            print("Проверка обновлений...")
-            req_file = find_requirements()
-            if req_file:
-                print(f"Обновление пакетов из {req_file}...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "-r", str(req_file)])
-            else:
-                packages = ["python-dotenv", "pyyaml", "playwright", "openai", "anthropic",
-                            "pypdf", "python-docx", "ruamel.yaml"]
-                print("Обновление основных пакетов...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade"] + packages)
-
-            # Также можно обновить браузеры Playwright
-            update_browser = input("Обновить браузеры Playwright? (Y/N): ").strip().lower()
-            if update_browser in ('y', 'yes', 'да'):
-                subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-            print("Обновление завершено.\n")
-        else:
-            print("Проверка обновлений пропущена.\n")
-
         return load_dotenv
 
     # Если по каким-то причинам не удалось, пробуем ещё раз
@@ -165,7 +142,7 @@ class SetupTool:
         self.has_gui = self._check_gui()
         self._ensure_directories()
         self._copy_missing_files()
-        # Определяем, нужно ли показывать пункт "Начальная установка"
+        # Определяем, выполнена ли установка
         self.setup_done = SETUP_DONE_FILE.exists()
 
     def _check_gui(self):
@@ -207,6 +184,8 @@ class SetupTool:
             base = 2
         else:
             base = 1
+            # Если установка выполнена, добавляем пункт 1 как "Проверить обновления"
+            items.append((1, "Проверить обновление пакетов и зависимостей", self._step_check_updates))
 
         items.append((base,     "Настройка Telegram бота для уведомлений (один раз)", self._step_setup_telegram))
         items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
@@ -272,7 +251,75 @@ class SetupTool:
         print("Неверный номер шага")
         input("\nНажмите Enter для продолжения...")
 
-    # ---------- ШАГ: Начальная установка ----------
+    # ---------- ШАГ: Проверка обновлений (новый пункт) ----------
+    def _step_check_updates(self):
+        print("\n" + "=" * 60)
+        print("ПРОВЕРКА ОБНОВЛЕНИЙ ПАКЕТОВ И ЗАВИСИМОСТЕЙ")
+        print("=" * 60)
+
+        # Получаем список установленных пакетов с версиями
+        print("Получение списка установленных пакетов...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "list", "--outdated", "--format=json"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            outdated = json.loads(result.stdout)
+        except Exception as e:
+            print(f"Ошибка при проверке обновлений: {e}")
+            return
+
+        if not outdated:
+            print("Все пакеты обновлены до последних версий.")
+            return
+
+        print(f"\nНайдено устаревших пакетов: {len(outdated)}")
+        for pkg in outdated:
+            print(f"  {pkg['name']}: {pkg['version']} -> {pkg['latest_version']}")
+
+        # Спрашиваем, обновлять ли
+        choice = input("\nОбновить все устаревшие пакеты? (Y/N): ").strip().lower()
+        if choice in ('y', 'yes', 'да'):
+            print("Обновление пакетов...")
+            for pkg in outdated:
+                name = pkg['name']
+                print(f"Обновление {name}...")
+                try:
+                    subprocess.check_call(
+                        [sys.executable, "-m", "pip", "install", "--upgrade", name],
+                        stdout=sys.stdout,
+                        stderr=sys.stderr
+                    )
+                except subprocess.CalledProcessError as e:
+                    print(f"Ошибка при обновлении {name}: {e}")
+            print("Обновление пакетов завершено.")
+
+            # Предлагаем обновить браузеры Playwright
+            update_browser = input("Обновить браузеры Playwright? (Y/N): ").strip().lower()
+            if update_browser in ('y', 'yes', 'да'):
+                print("Обновление браузеров Playwright...")
+                try:
+                    subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+                    print("Браузеры обновлены.")
+                except Exception as e:
+                    print(f"Ошибка при обновлении браузеров: {e}")
+
+            # Предлагаем обновить pip
+            update_pip = input("Обновить pip? (Y/N): ").strip().lower()
+            if update_pip in ('y', 'yes', 'да'):
+                print("Обновление pip...")
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+                    print("pip обновлён.")
+                except Exception as e:
+                    print(f"Ошибка при обновлении pip: {e}")
+
+        else:
+            print("Обновление отменено.")
+
+    # ---------- ШАГ: Начальная установка (только если не выполнена) ----------
     def _step_install_deps(self):
         print("\n" + "=" * 60)
         print("НАЧАЛЬНАЯ УСТАНОВКА (ПЕРВЫЙ РАЗ)")
@@ -280,7 +327,7 @@ class SetupTool:
         print("Этот шаг уже был выполнен автоматически при первом запуске.")
         print("Если вы хотите переустановить зависимости заново, удалите файл")
         print(f"{SETUP_DONE_FILE} и перезапустите скрипт.")
-        print("Или выполните обновление через предложение при запуске.")
+        print("Для проверки обновлений используйте пункт 'Проверить обновление пакетов и зависимостей'.")
         input("Нажмите Enter для возврата...")
 
     # ---------- ШАГ: Настройка Telegram бота ----------
