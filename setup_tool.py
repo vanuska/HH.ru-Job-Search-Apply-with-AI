@@ -162,6 +162,55 @@ class SetupTool:
             shutil.copy2(src, dst)
             print(f"Скопирован {CONFIG_EXAMPLE} из examples в корень")
 
+        # Если нет config.yaml в my/, создаём из примера
+        config_src = self.root_dir / CONFIG_EXAMPLE
+        config_dst = MY_DIR / "config.yaml"
+        if config_src.exists() and not config_dst.exists():
+            shutil.copy2(config_src, config_dst)
+            print(f"Создан базовый config.yaml в {config_dst}")
+        elif not config_dst.exists():
+            base_config = """vacancies:
+  keywords: []
+  required_title_words_any: []
+  stop_words: []
+  remote_only: false
+  skip_already_applied: true
+
+search:
+  area: 113
+  per_page: 20
+  max_pages: 1
+  title_only: true
+  order_by: publication_time
+  period_days: 7
+
+filters:
+  skip_has_test: true
+  exclude_company_keywords: []
+  exclude_description_keywords: []
+
+limits:
+  max_applications_per_run: 10
+  delay_between_applications_seconds: 12
+
+application_questions:
+  city: "Москва"
+  salary_expectations: "от 270000 RUB"
+  answers: []
+
+letter:
+  language: ru
+  max_chars: 1200
+  portfolio_url: ""
+  prompt_path: my/cover_letter_prompt.md
+  extra_instructions: ""
+
+schedule:
+  run_times: ["09:30", "18:30"]
+"""
+            config_dst.write_text(base_config, encoding="utf-8")
+            print(f"Создан минимальный config.yaml в {config_dst}")
+
     def get_menu_items(self):
         items = []
         if not self.setup_done:
@@ -173,12 +222,13 @@ class SetupTool:
             items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
             items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
             items.append((base+3,   "Выбор доступных LLM", self._step_check_models))
-            items.append((base+4,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
-            items.append((base+5,   "Настройка промта для AI CL", self._step_setup_prompt))
-            items.append((base+6,   "Тест генерации AI CL", self._step_test_letter))
-            items.append((base+7,   "Запуск || Поиск работы", self._step_run_apply))
-            items.append((base+8,   "Работа с базой данных (отклики, ошибки)", self._step_clean_db))
-            items.append((base+9,   "Выход", self._exit))
+            items.append((base+4,   "Настройка конфигурации запросов (config.yaml)", self._step_setup_config))
+            items.append((base+5,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
+            items.append((base+6,   "Настройка промта для AI CL", self._step_setup_prompt))
+            items.append((base+7,   "Тест генерации AI CL", self._step_test_letter))
+            items.append((base+8,   "Запуск || Поиск работы", self._step_run_apply))
+            items.append((base+9,   "Работа с базой данных (отклики, ошибки)", self._step_clean_db))
+            items.append((base+10,  "Выход", self._exit))
         return items
 
     def show_menu(self):
@@ -523,7 +573,7 @@ class SetupTool:
         except Exception as e:
             print(f"Ошибка записи: {e}")
 
-    # ---------- ШАГ: Выбор доступных LLM (с определением бесплатных/платных) ----------
+    # ---------- ШАГ: Выбор доступных LLM ----------
     def _step_check_models(self):
         print("\n" + "=" * 60)
         print("ВЫБОР ДОСТУПНЫХ LLM")
@@ -623,7 +673,6 @@ class SetupTool:
             print("Не выбрано ни одной модели.")
             return
 
-        # Сохраняем список выбранных моделей
         self._update_env_var("OPENROUTER_MODELS", ",".join(selected_models))
 
         if len(selected_models) == 1:
@@ -648,6 +697,88 @@ class SetupTool:
         else:
             print(f"Выбрано {len(selected_models)} моделей.")
         print("Теперь auto_apply может использовать эти модели.")
+
+    # ---------- ШАГ: Настройка конфигурации запросов (config.yaml) ----------
+    def _step_setup_config(self):
+        print("\n" + "=" * 60)
+        print("НАСТРОЙКА КОНФИГУРАЦИИ ЗАПРОСОВ (CONFIG.YAML)")
+        print("=" * 60)
+
+        config_file = MY_DIR / "config.yaml"
+        if not config_file.exists():
+            base_config = """vacancies:
+  keywords: []
+  required_title_words_any: []
+  stop_words: []
+  remote_only: false
+  skip_already_applied: true
+
+search:
+  area: 113
+  per_page: 20
+  max_pages: 1
+  title_only: true
+  order_by: publication_time
+  period_days: 7
+
+filters:
+  skip_has_test: true
+  exclude_company_keywords: []
+  exclude_description_keywords: []
+
+limits:
+  max_applications_per_run: 10
+  delay_between_applications_seconds: 12
+
+application_questions:
+  city: "Москва"
+  salary_expectations: "от 270000 RUB"
+  answers: []
+
+letter:
+  language: ru
+  max_chars: 1200
+  portfolio_url: ""
+  prompt_path: my/cover_letter_prompt.md
+  extra_instructions: ""
+
+schedule:
+  run_times: ["09:30", "18:30"]
+"""
+            config_file.write_text(base_config, encoding="utf-8")
+            print("Создан базовый config.yaml")
+
+        print("\nТекущее содержимое config.yaml:")
+        print("-" * 60)
+        try:
+            content = config_file.read_text(encoding="utf-8")
+            print(content)
+        except:
+            print("Не удалось прочитать файл.")
+        print("-" * 60)
+
+        edit = input("\nХотите отредактировать config.yaml вручную? (Y/N): ").strip().upper()
+        if edit in ["Y", "ДА"]:
+            if platform.system() == "Windows":
+                os.startfile(str(config_file))
+                print("Файл открыт в редакторе по умолчанию. После редактирования сохраните и закройте.")
+            else:
+                try:
+                    subprocess.run(["nano", str(config_file)])
+                except:
+                    try:
+                        subprocess.run(["vim", str(config_file)])
+                    except:
+                        try:
+                            subprocess.run(["gedit", str(config_file)])
+                        except:
+                            print("Не удалось открыть редактор. Отредактируйте файл вручную:")
+                            print(f"  {config_file}")
+            input("Нажмите Enter, когда закончите редактирование...")
+        else:
+            print("Редактирование пропущено.")
+
+        print("Настройка config.yaml завершена.")
 
     # ---------- ШАГ: Импорт резюме ----------
     def _step_create_profile(self):
@@ -1153,6 +1284,52 @@ Email, Telegram, LinkedIn, Телефон
         print("ЗАПУСК || ПОИСК РАБОТЫ")
         print("=" * 60)
 
+        # Проверяем наличие config.yaml
+        config_file = MY_DIR / "config.yaml"
+        if not config_file.exists():
+            print("Файл config.yaml не найден. Создаю базовый...")
+            base_config = """vacancies:
+  keywords: []
+  required_title_words_any: []
+  stop_words: []
+  remote_only: false
+  skip_already_applied: true
+
+search:
+  area: 113
+  per_page: 20
+  max_pages: 1
+  title_only: true
+  order_by: publication_time
+  period_days: 7
+
+filters:
+  skip_has_test: true
+  exclude_company_keywords: []
+  exclude_description_keywords: []
+
+limits:
+  max_applications_per_run: 10
+  delay_between_applications_seconds: 12
+
+application_questions:
+  city: "Москва"
+  salary_expectations: "от 270000 RUB"
+  answers: []
+
+letter:
+  language: ru
+  max_chars: 1200
+  portfolio_url: ""
+  prompt_path: my/cover_letter_prompt.md
+  extra_instructions: ""
+
+schedule:
+  run_times: ["09:30", "18:30"]
+"""
+            config_file.write_text(base_config, encoding="utf-8")
+            print("Базовый config.yaml создан. Рекомендуется настроить его через соответствующий пункт меню.")
+
         if self._is_schedule_running():
             print("\nОбнаружен запущенный процесс auto_apply.py (PID из файла).")
             choice = input("Остановить его и запустить новый? (Y/N): ").strip().upper()
@@ -1166,7 +1343,7 @@ Email, Telegram, LinkedIn, Телефон
                 input("Нажмите Enter для возврата в меню...")
                 return
 
-        config_file = MY_DIR / "config.yaml"
+        # Чтение настроек из config.yaml
         if config_file.exists():
             try:
                 import yaml
@@ -1320,6 +1497,7 @@ Email, Telegram, LinkedIn, Телефон
             print("Неверный выбор. Запуск в dry-run режиме.")
             args = ["--once"]
 
+        # Настройка xvfb
         if self.is_linux and not self.has_gui:
             if mode in ["2", "4"]:
                 xvfb_choice = input("Использовать xvfb-run? (Y/N, Enter=Y): ").strip().upper()
@@ -1333,6 +1511,7 @@ Email, Telegram, LinkedIn, Телефон
                         args.append("--headless")
                     print("Добавлен флаг --headless (браузер будет невидимым)")
 
+        # Передаём Telegram-переменные
         if env_path.exists():
             env_content = env_path.read_text(encoding='utf-8')
             tg_token = re.search(r'^TELEGRAM_BOT_TOKEN=(.*)$', env_content, re.MULTILINE)
@@ -1341,6 +1520,7 @@ Email, Telegram, LinkedIn, Телефон
                 extra_env["TELEGRAM_BOT_TOKEN"] = tg_token.group(1).strip()
                 extra_env["TELEGRAM_CHAT_ID"] = tg_chat.group(1).strip()
 
+        # Запуск
         if is_schedule:
             background = input("Запустить процесс в фоновом режиме? (Y/N, Enter=Y): ").strip().upper()
             if background != "N":
