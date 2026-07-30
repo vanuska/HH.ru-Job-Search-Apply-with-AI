@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Инструмент для настройки и управления hh-auto-apply
+Инструмент для настройки и управления Job-search
 """
 
 import os
@@ -223,7 +223,7 @@ class SetupTool:
     def show_menu(self):
         os.system('cls' if os.name == 'nt' else 'clear')
         print("=" * 70)
-        print("HH-AUTO-APPLY SETUP TOOL")
+        print("JOB-SEARCH SETUP TOOL")
         print("=" * 70)
         print()
         print("Доступные шаги:")
@@ -327,7 +327,7 @@ class SetupTool:
             import urllib.request
             import json
             url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = json.dumps({"chat_id": chat_id, "text": "✅ Тестовое сообщение от hh-auto-apply setup tool"})
+            data = json.dumps({"chat_id": chat_id, "text": "✅ Тестовое сообщение от job-search setup tool"})
             req = urllib.request.Request(url, data=data.encode('utf-8'), headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.status == 200
