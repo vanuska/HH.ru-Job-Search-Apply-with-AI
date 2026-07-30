@@ -24,6 +24,7 @@ DATA_DIR = ROOT_DIR / "data"
 # Маркерный файл, указывающий, что начальная установка выполнена
 SETUP_DONE_FILE = DATA_DIR / "setup.done"
 
+
 # --------------------------------------------------------------------
 # Функция для проверки и установки зависимостей при первом запуске
 # --------------------------------------------------------------------
@@ -38,43 +39,38 @@ def find_requirements() -> Path | None:
         return mod_req
     return None
 
+
 def ensure_dependencies():
     """
     Проверяет наличие python-dotenv.
     - Если маркерного файла нет: выполняет полную установку (пакеты, playwright, системные зависимости).
     Возвращает функцию load_dotenv.
     """
-    # Сначала пытаемся импортировать dotenv
     try:
         from dotenv import load_dotenv
-        # Если маркер есть, просто возвращаем load_dotenv
         if SETUP_DONE_FILE.exists():
             return load_dotenv
     except ImportError:
         load_dotenv = None
 
-    # Если маркерного файла нет или dotenv не найден — выполняем полную установку
     if not SETUP_DONE_FILE.exists() or load_dotenv is None:
         print("Первый запуск или отсутствуют зависимости. Выполняется полная установка...")
 
-        # Установка Python-пакетов (с --no-cache-dir для избежания предупреждений)
         req_file = find_requirements()
         if req_file:
             print(f"Установка пакетов из {req_file}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", str(req_file)])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", str(req_file)])
         else:
             packages = [
                 "python-dotenv", "pyyaml", "playwright", "openai", "anthropic",
                 "pypdf", "python-docx", "ruamel.yaml"
             ]
             print("Установка минимального набора пакетов:", ", ".join(packages))
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir"] + packages)
+            subprocess.check_call([sys.executable, "-m", "pip", "install"] + packages)
 
-        # Установка браузеров Playwright
         print("Установка браузеров Playwright...")
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
 
-        # Системные зависимости для Linux
         if platform.system() == "Linux":
             print("Установка системных зависимостей Playwright...")
             try:
@@ -90,30 +86,25 @@ def ensure_dependencies():
                                            "libasound2", "libpango-1.0-0", "libcairo2", "libatk1.0-0",
                                            "libatk-bridge2.0-0", "libgtk-3-0", "libdrm2", "libxshmfence1"])
                 except:
-                    print("Не удалось установить системные зависимости вручную. Возможны проблемы с запуском браузера.")
+                    print("Не удалось установить системные зависимости вручную.")
 
-            # Установка xvfb, если нет графического интерфейса
             if not os.environ.get("DISPLAY"):
                 try:
                     subprocess.check_call(["sudo", "apt", "install", "-y", "xvfb"])
                     print("xvfb установлен.")
                 except:
-                    print("Не удалось установить xvfb. Запуск в headless-режиме может не работать.")
+                    print("Не удалось установить xvfb.")
 
-        # Создаём маркерный файл
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         SETUP_DONE_FILE.touch()
         print("Начальная установка завершена.\n")
 
-        # Повторно импортируем dotenv
         from dotenv import load_dotenv
         return load_dotenv
 
-    # Если маркер есть и dotenv уже загружен – просто возвращаем
     return load_dotenv
 
 
-# Загружаем dotenv (функция будет выполнена при импорте)
 load_dotenv = ensure_dependencies()
 
 # Остальные импорты
@@ -140,11 +131,9 @@ class SetupTool:
         self.has_gui = self._check_gui()
         self._ensure_directories()
         self._copy_missing_files()
-        # Определяем, выполнена ли установка
         self.setup_done = SETUP_DONE_FILE.exists()
 
     def _check_gui(self):
-        """Проверяет наличие графического интерфейса"""
         if not self.is_linux:
             return True
         if os.environ.get("DISPLAY"):
@@ -174,16 +163,12 @@ class SetupTool:
             print(f"Скопирован {CONFIG_EXAMPLE} из examples в корень")
 
     def get_menu_items(self):
-        """Возвращает список пунктов меню с номерами, описаниями и методами."""
         items = []
         if not self.setup_done:
-            # Если установка не выполнена, показываем только один пункт
             items.append((1, "Начальная установка (обязательно)", self._step_install_deps))
         else:
-            # Если установка выполнена, первый пункт — проверка обновлений
             items.append((1, "Проверить обновление пакетов и зависимостей", self._step_check_updates))
             base = 2
-            # Остальные пункты
             items.append((base,     "Настройка Telegram бота для уведомлений (один раз)", self._step_setup_telegram))
             items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
             items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
@@ -235,7 +220,6 @@ class SetupTool:
         print()
 
     def run_step(self, step_number: int):
-        # Находим метод по номеру
         for num, desc, method in self.get_menu_items():
             if num == step_number:
                 try:
@@ -256,7 +240,6 @@ class SetupTool:
         print("Этот шаг уже был выполнен автоматически при первом запуске.")
         print("Если вы хотите переустановить зависимости заново, удалите файл")
         print(f"{SETUP_DONE_FILE} и перезапустите скрипт.")
-        print("Или используйте пункт 'Проверить обновление' для обновления пакетов.")
         input("Нажмите Enter для возврата...")
 
     # ---------- ШАГ: Проверка обновлений ----------
@@ -294,13 +277,10 @@ class SetupTool:
         print("\nПроверка обновлений для пакетов из requirements.txt...")
         req_file = find_requirements()
         if req_file:
-            # Получаем список пакетов из requirements.txt
             with open(req_file, 'r', encoding='utf-8') as f:
                 req_lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            # Извлекаем имена пакетов (без версий)
             packages = []
             for line in req_lines:
-                # Убираем опции, оставляем только имя пакета
                 pkg = re.split(r'[>=<~!]', line)[0].strip()
                 if pkg:
                     packages.append(pkg)
@@ -529,7 +509,6 @@ class SetupTool:
                 env_data["OPENROUTER_API_KEY"] = "none"
             env_data["OPENROUTER_MODEL"] = "auto"
 
-        # Пути к файлам
         if "N8N_FILES_DIR" not in env_data:
             env_data["N8N_FILES_DIR"] = ""
         if "HH_CONFIG_PATH" not in env_data:
@@ -537,7 +516,6 @@ class SetupTool:
         if "HH_STATE_DB" not in env_data:
             env_data["HH_STATE_DB"] = "data/hh_auto_apply.sqlite3"
 
-        # Сохраняем .env
         try:
             lines = [f"{k}={v}" for k, v in env_data.items()]
             env_file.write_text("\n".join(lines), encoding="utf-8")
@@ -545,12 +523,131 @@ class SetupTool:
         except Exception as e:
             print(f"Ошибка записи: {e}")
 
-    # ---------- ШАГ: Выбор доступных LLM ----------
+    # ---------- ШАГ: Выбор доступных LLM (с определением бесплатных/платных) ----------
     def _step_check_models(self):
         print("\n" + "=" * 60)
         print("ВЫБОР ДОСТУПНЫХ LLM")
         print("=" * 60)
-        self._run_script("check_models.py")
+
+        load_dotenv()
+        provider = os.getenv("LLM_PROVIDER", "").lower()
+
+        if provider != "openrouter":
+            print("Провайдер не OpenRouter. Запуск стандартной проверки...")
+            self._run_script("check_models.py")
+            return
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key or api_key == "none":
+            print("OPENROUTER_API_KEY не задан. Запуск стандартной проверки...")
+            self._run_script("check_models.py")
+            return
+
+        print("Получение списка моделей OpenRouter...")
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+            models_response = client.models.list()
+            model_ids = [m.id for m in models_response.data if m.id]
+        except Exception as e:
+            print(f"Ошибка получения списка моделей OpenRouter: {e}")
+            print("Запуск стандартной проверки...")
+            self._run_script("check_models.py")
+            return
+
+        if not model_ids:
+            print("Список моделей пуст. Запуск стандартной проверки...")
+            self._run_script("check_models.py")
+            return
+
+        # Известные бесплатные модели (актуально на июль 2026)
+        KNOWN_FREE_MODELS = {
+            "openrouter/free", "openrouter/auto", "openrouter/auto-beta",
+            "google/gemini-2.0-flash-exp:free", "cohere/north-mini-code:free",
+            "nvidia/nemotron-3-nano-30b-a3b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "nvidia/nemotron-3.5-content-safety:free", "nvidia/nemotron-nano-12b-v2-vl:free",
+            "nvidia/nemotron-nano-9b-v2:free", "openai/gpt-oss-20b:free",
+            "poolside/laguna-m.1:free", "poolside/laguna-xs-2.1:free", "tencent/hy3:free",
+            "google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free",
+            "meta-llama/llama-3.2-3b-instruct:free", "meta-llama/llama-3.3-70b-instruct:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free", "sao10k/l3-lunaris-8b:free",
+            "openai/gpt-4o-2024-08-06:free", "meta-llama/llama-3.1-70b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-nemo:free",
+            "openai/gpt-4o-mini:free", "openai/gpt-4o-mini-2024-07-18:free",
+            "google/gemma-2-27b-it:free",
+        }
+
+        models_info = []
+        for model_id in model_ids:
+            is_free = (":free" in model_id) or (model_id in KNOWN_FREE_MODELS)
+            price_display = "free" if is_free else "платная/неизвестно"
+            models_info.append({'id': model_id, 'is_free': is_free, 'price_display': price_display})
+
+        print(f"\nДоступные модели OpenRouter (всего {len(models_info)}):")
+        for idx, info in enumerate(models_info, 1):
+            print(f"  {idx}. {info['id']} ({info['price_display']})")
+
+        print("\nВы можете сохранить модели в .env для использования в auto_apply.")
+        print("Команды:")
+        print("  'free'  - сохранить все модели, помеченные как бесплатные")
+        print("  'all'   - сохранить все модели (включая платные)")
+        print("  номера  - сохранить только выбранные модели (через запятую, например 1,3,5)")
+        print("  Enter   - пропустить сохранение")
+        choice = input("\nВаш выбор: ").strip()
+
+        if not choice:
+            print("Сохранение моделей пропущено.")
+            return
+
+        selected_models = []
+        if choice.lower() == "free":
+            selected_models = [info['id'] for info in models_info if info['is_free']]
+            print(f"Выбраны все бесплатные модели ({len(selected_models)} шт.)")
+        elif choice.lower() == "all":
+            selected_models = [info['id'] for info in models_info]
+            print(f"Выбраны все модели ({len(selected_models)} шт.)")
+        else:
+            parts = [p.strip() for p in choice.split(",") if p.strip()]
+            for part in parts:
+                try:
+                    idx = int(part) - 1
+                    if 0 <= idx < len(models_info):
+                        selected_models.append(models_info[idx]['id'])
+                    else:
+                        print(f"Номер {part} вне диапазона, пропускаем.")
+                except ValueError:
+                    print(f"Некорректный ввод '{part}', пропускаем.")
+
+        if not selected_models:
+            print("Не выбрано ни одной модели.")
+            return
+
+        # Сохраняем список выбранных моделей
+        self._update_env_var("OPENROUTER_MODELS", ",".join(selected_models))
+
+        if len(selected_models) == 1:
+            self._update_env_var("OPENROUTER_MODEL", selected_models[0])
+            print(f"Установлена модель по умолчанию: {selected_models[0]}")
+        else:
+            current_model = os.getenv("OPENROUTER_MODEL")
+            if current_model and current_model != "auto":
+                set_auto = input("Выбрано несколько моделей. Хотите установить OPENROUTER_MODEL='auto' для интерактивного выбора? (Y/N): ").strip().upper()
+                if set_auto in ["Y", "ДА"]:
+                    self._update_env_var("OPENROUTER_MODEL", "auto")
+                    print("OPENROUTER_MODEL установлен в 'auto'.")
+                else:
+                    print("OPENROUTER_MODEL оставлен без изменений.")
+            else:
+                self._update_env_var("OPENROUTER_MODEL", "auto")
+                print("OPENROUTER_MODEL установлен в 'auto' для интерактивного выбора.")
+
+        print(f"Сохранено {len(selected_models)} моделей в переменную OPENROUTER_MODELS.")
+        if len(selected_models) <= 5:
+            print("Выбранные модели:", ", ".join(selected_models))
+        else:
+            print(f"Выбрано {len(selected_models)} моделей.")
+        print("Теперь auto_apply может использовать эти модели.")
 
     # ---------- ШАГ: Импорт резюме ----------
     def _step_create_profile(self):
@@ -573,7 +670,6 @@ class SetupTool:
         print("5. Сгенерировать с помощью LLM (требуется API ключ)")
 
         choice = input("Выберите способ (1-5): ").strip()
-
         if choice == "1":
             self._create_manual_profile()
         elif choice == "2":
@@ -622,7 +718,6 @@ class SetupTool:
         print("=" * 60)
 
         pdf_files = list(MY_DIR.glob("*.pdf"))
-
         print("\nОткуда взять PDF файл?")
         print("1. Из папки my/ (уже скопированы)")
         print("2. Указать путь к файлу вручную")
@@ -634,16 +729,12 @@ class SetupTool:
         if source_choice == "1":
             if not pdf_files:
                 print("В папке my/ нет PDF файлов.")
-                print("Скопируйте PDF в папку my/ и попробуйте снова")
                 return
-
             print("\nНайденные PDF файлы:")
             for i, f in enumerate(pdf_files, 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
             choice = input("Выберите номер файла (или Enter для первого): ").strip()
-
             try:
                 if choice:
                     idx = int(choice) - 1
@@ -652,42 +743,29 @@ class SetupTool:
                     pdf_path = pdf_files[0]
             except (ValueError, IndexError):
                 pdf_path = pdf_files[0]
-
         elif source_choice == "2":
             file_path = input("Введите полный путь к PDF файлу: ").strip()
             if not file_path:
-                print("Путь не указан")
                 return
-
             pdf_path = Path(file_path)
             if not pdf_path.exists():
                 print(f"Файл не найден: {pdf_path}")
                 return
-
             shutil.copy2(pdf_path, MY_DIR / pdf_path.name)
             print(f"Файл скопирован в {MY_DIR / pdf_path.name}")
             pdf_path = MY_DIR / pdf_path.name
-
         elif source_choice == "3":
             home = Path.home()
             print(f"\nПоиск PDF в домашней папке: {home}")
-
             home_pdfs = list(home.glob("*.pdf"))
-
             if not home_pdfs:
                 print("PDF файлы не найдены в домашней папке")
                 return
-
             print("\nНайденные PDF в домашней папке:")
             for i, f in enumerate(home_pdfs[:10], 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
-            if len(home_pdfs) > 10:
-                print(f"  ... и еще {len(home_pdfs) - 10} файлов")
-
             choice = input("Выберите номер файла: ").strip()
-
             try:
                 idx = int(choice) - 1
                 pdf_path = home_pdfs[idx] if 0 <= idx < len(home_pdfs) else None
@@ -697,11 +775,9 @@ class SetupTool:
             except ValueError:
                 print("Неверный ввод")
                 return
-
             shutil.copy2(pdf_path, MY_DIR / pdf_path.name)
             print(f"Файл скопирован в {MY_DIR / pdf_path.name}")
             pdf_path = MY_DIR / pdf_path.name
-
         else:
             print("Неверный выбор")
             return
@@ -717,30 +793,23 @@ class SetupTool:
             return
 
         print(f"\nИзвлечение текста из: {pdf_path.name}")
-
         try:
             reader = PdfReader(str(pdf_path))
             text_parts = []
-
             for page_num, page in enumerate(reader.pages, 1):
                 text = page.extract_text() or ""
                 if text.strip():
                     text_parts.append(f"--- Страница {page_num} ---\n{text}")
                     print(f"  Страница {page_num}: {len(text)} символов")
-
             if not text_parts:
                 print("Не удалось извлечь текст из PDF")
                 return
-
             content = "\n\n".join(text_parts)
-
             profile_file = MY_DIR / "profile.md"
             profile_file.write_text(content, encoding="utf-8")
-
             print(f"\nПрофиль создан из {pdf_path.name}")
             print(f"Размер: {len(content)} символов")
             print(f"Сохранен: {profile_file}")
-
         except Exception as e:
             print(f"Ошибка при извлечении из PDF: {e}")
 
@@ -750,7 +819,6 @@ class SetupTool:
         print("=" * 60)
 
         doc_files = list(MY_DIR.glob("*.docx")) + list(MY_DIR.glob("*.doc"))
-
         print("\nОткуда взять DOC/DOCX файл?")
         print("1. Из папки my/ (уже скопированы)")
         print("2. Указать путь к файлу вручную")
@@ -763,14 +831,11 @@ class SetupTool:
             if not doc_files:
                 print("В папке my/ нет DOC/DOCX файлов")
                 return
-
             print("\nНайденные DOC/DOCX файлы:")
             for i, f in enumerate(doc_files, 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
             choice = input("Выберите номер файла (или Enter для первого): ").strip()
-
             try:
                 if choice:
                     idx = int(choice) - 1
@@ -779,39 +844,29 @@ class SetupTool:
                     doc_path = doc_files[0]
             except (ValueError, IndexError):
                 doc_path = doc_files[0]
-
         elif source_choice == "2":
             file_path = input("Введите полный путь к DOC/DOCX файлу: ").strip()
             if not file_path:
-                print("Путь не указан")
                 return
-
             doc_path = Path(file_path)
             if not doc_path.exists():
                 print(f"Файл не найден: {doc_path}")
                 return
-
             shutil.copy2(doc_path, MY_DIR / doc_path.name)
             print(f"Файл скопирован в {MY_DIR / doc_path.name}")
             doc_path = MY_DIR / doc_path.name
-
         elif source_choice == "3":
             home = Path.home()
             print(f"\nПоиск DOC/DOCX в домашней папке: {home}")
-
             home_docs = list(home.glob("*.docx")) + list(home.glob("*.doc"))
-
             if not home_docs:
                 print("DOC/DOCX файлы не найдены в домашней папке")
                 return
-
             print("\nНайденные DOC/DOCX в домашней папке:")
             for i, f in enumerate(home_docs[:10], 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
             choice = input("Выберите номер файла: ").strip()
-
             try:
                 idx = int(choice) - 1
                 doc_path = home_docs[idx] if 0 <= idx < len(home_docs) else None
@@ -821,11 +876,9 @@ class SetupTool:
             except ValueError:
                 print("Неверный ввод")
                 return
-
             shutil.copy2(doc_path, MY_DIR / doc_path.name)
             print(f"Файл скопирован в {MY_DIR / doc_path.name}")
             doc_path = MY_DIR / doc_path.name
-
         else:
             print("Неверный выбор")
             return
@@ -836,36 +889,26 @@ class SetupTool:
     def _extract_docx_text(self, doc_path: Path):
         if doc_path.suffix.lower() == '.doc':
             print(f"\nФайл {doc_path.name} имеет старый формат .doc")
-            print("Рекомендации:")
-            print("  1. Откройте файл в Microsoft Word и сохраните как .docx")
-            print("  2. Или сохраните как .txt и используйте способ 4")
+            print("Рекомендации: откройте в Word и сохраните как .docx, или используйте способ 4 (TXT)")
             return
-
         try:
             import docx
         except ImportError:
             print("python-docx не установлен. Установите: pip install python-docx")
             return
-
         print(f"\nИзвлечение текста из: {doc_path.name}")
-
         try:
             doc = docx.Document(str(doc_path))
             text_parts = [p.text for p in doc.paragraphs if p.text.strip()]
-
             if not text_parts:
                 print("Не удалось извлечь текст (пустой результат)")
                 return
-
             content = "\n\n".join(text_parts)
-
             profile_file = MY_DIR / "profile.md"
             profile_file.write_text(content, encoding="utf-8")
-
             print(f"\nПрофиль создан из {doc_path.name}")
             print(f"Размер: {len(content)} символов")
             print(f"Сохранен: {profile_file}")
-
         except Exception as e:
             print(f"Не удалось открыть файл: {e}")
 
@@ -875,7 +918,6 @@ class SetupTool:
         print("=" * 60)
 
         txt_files = list(MY_DIR.glob("*.txt"))
-
         print("\nОткуда взять TXT файл?")
         print("1. Из папки my/ (уже скопированы)")
         print("2. Указать путь к файлу вручную")
@@ -888,14 +930,11 @@ class SetupTool:
             if not txt_files:
                 print("В папке my/ нет TXT файлов")
                 return
-
             print("\nНайденные TXT файлы:")
             for i, f in enumerate(txt_files, 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
             choice = input("Выберите номер файла (или Enter для первого): ").strip()
-
             try:
                 if choice:
                     idx = int(choice) - 1
@@ -904,39 +943,29 @@ class SetupTool:
                     txt_path = txt_files[0]
             except (ValueError, IndexError):
                 txt_path = txt_files[0]
-
         elif source_choice == "2":
             file_path = input("Введите полный путь к TXT файлу: ").strip()
             if not file_path:
-                print("Путь не указан")
                 return
-
             txt_path = Path(file_path)
             if not txt_path.exists():
                 print(f"Файл не найден: {txt_path}")
                 return
-
             shutil.copy2(txt_path, MY_DIR / txt_path.name)
             print(f"Файл скопирован в {MY_DIR / txt_path.name}")
             txt_path = MY_DIR / txt_path.name
-
         elif source_choice == "3":
             home = Path.home()
             print(f"\nПоиск TXT в домашней папке: {home}")
-
             home_txts = list(home.glob("*.txt"))
-
             if not home_txts:
                 print("TXT файлы не найдены в домашней папке")
                 return
-
             print("\nНайденные TXT в домашней папке:")
             for i, f in enumerate(home_txts[:10], 1):
                 size = f.stat().st_size / 1024
                 print(f"  {i}. {f.name} ({size:.1f} КБ)")
-
             choice = input("Выберите номер файла: ").strip()
-
             try:
                 idx = int(choice) - 1
                 txt_path = home_txts[idx] if 0 <= idx < len(home_txts) else None
@@ -946,11 +975,9 @@ class SetupTool:
             except ValueError:
                 print("Неверный ввод")
                 return
-
             shutil.copy2(txt_path, MY_DIR / txt_path.name)
             print(f"Файл скопирован в {MY_DIR / txt_path.name}")
             txt_path = MY_DIR / txt_path.name
-
         else:
             print("Неверный выбор")
             return
@@ -1037,16 +1064,10 @@ class SetupTool:
             if not api_key or api_key == "none":
                 print("OPENROUTER_API_KEY не найден или равен none")
                 return ""
-
             model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
             if model == "auto":
                 model = "openrouter/free"
-                print(f"Используем модель по умолчанию: {model}")
-            else:
-                print(f"Используем модель из .env: {model}")
-
             client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-
             prompt = f"""
 Преобразуй следующие данные в структурированный профиль для hh.ru.
 Используй формат markdown с разделами:
@@ -1068,7 +1089,6 @@ Email, Telegram, LinkedIn, Телефон
 Данные:
 {raw_data}
 """
-
             response = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
@@ -1247,7 +1267,7 @@ Email, Telegram, LinkedIn, Телефон
             api_key = api_key_match.group(1).strip() if api_key_match else None
             if not api_key or api_key == "none":
                 print("\nОШИБКА: в .env не указан OPENROUTER_API_KEY или он равен 'none'.")
-                print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 3).")
+                print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 4).")
                 input("Нажмите Enter для продолжения...")
                 return
 
@@ -1300,7 +1320,6 @@ Email, Telegram, LinkedIn, Телефон
             print("Неверный выбор. Запуск в dry-run режиме.")
             args = ["--once"]
 
-        # Настройка xvfb
         if self.is_linux and not self.has_gui:
             if mode in ["2", "4"]:
                 xvfb_choice = input("Использовать xvfb-run? (Y/N, Enter=Y): ").strip().upper()
@@ -1314,7 +1333,6 @@ Email, Telegram, LinkedIn, Телефон
                         args.append("--headless")
                     print("Добавлен флаг --headless (браузер будет невидимым)")
 
-        # Передаём Telegram-переменные
         if env_path.exists():
             env_content = env_path.read_text(encoding='utf-8')
             tg_token = re.search(r'^TELEGRAM_BOT_TOKEN=(.*)$', env_content, re.MULTILINE)
@@ -1323,7 +1341,6 @@ Email, Telegram, LinkedIn, Телефон
                 extra_env["TELEGRAM_BOT_TOKEN"] = tg_token.group(1).strip()
                 extra_env["TELEGRAM_CHAT_ID"] = tg_chat.group(1).strip()
 
-        # Запуск
         if is_schedule:
             background = input("Запустить процесс в фоновом режиме? (Y/N, Enter=Y): ").strip().upper()
             if background != "N":
@@ -1350,7 +1367,7 @@ Email, Telegram, LinkedIn, Телефон
         print("\nДо свидания!")
         sys.exit(0)
 
-    # ---------- ВСПОМОГАТЕЛЬНЫЕ ДЛЯ УПРАВЛЕНИЯ ПРОЦЕССОМ ----------
+    # ---------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ----------
     def _is_schedule_running(self) -> bool:
         if not PID_FILE.exists():
             return False
@@ -1443,13 +1460,11 @@ Email, Telegram, LinkedIn, Телефон
             return
         log_fd.close()
 
-    # ---------- БЕЗОПАСНОЕ ОБНОВЛЕНИЕ .ENV ----------
     def _update_env_var(self, key: str, value: str):
         env_path = self.root_dir / ".env"
         if not env_path.exists():
             env_path.write_text(f"{key}={value}\n", encoding='utf-8')
             return
-
         lines = env_path.read_text(encoding='utf-8').splitlines(keepends=False)
         found = False
         for i, line in enumerate(lines):
@@ -1461,7 +1476,6 @@ Email, Telegram, LinkedIn, Телефон
             lines.append(f"{key}={value}")
         env_path.write_text("\n".join(lines) + "\n", encoding='utf-8')
 
-    # ---------- ОБЫЧНЫЙ ЗАПУСК ----------
     def _run_script(self, script_name: str, args: List[str] = None,
                     use_xvfb: bool = False, extra_env: Dict[str, str] = None):
         script_path = self.root_dir / script_name
@@ -1499,7 +1513,6 @@ Email, Telegram, LinkedIn, Телефон
         except KeyboardInterrupt:
             print("\nПрервано пользователем")
 
-    # ---------- СОХРАНЕНИЕ YAML ----------
     def _save_yaml_preserve_format(self, file_path: Path, data: Dict[str, Any]):
         try:
             from ruamel.yaml import YAML
@@ -1542,7 +1555,6 @@ Email, Telegram, LinkedIn, Телефон
 
 
 def main():
-    # ensure_dependencies() уже вызвана при импорте, поэтому просто запускаем меню
     tool = SetupTool()
     while True:
         tool.show_menu()
