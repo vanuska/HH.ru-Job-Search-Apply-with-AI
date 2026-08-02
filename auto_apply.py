@@ -85,6 +85,7 @@ DEFAULT_APPLICATION_ANSWERS = [
 DEFAULT_CITY = "Москва"
 DEFAULT_SALARY = "от 270000 руб"
 
+# Базовые инструкции для LLM (запреты, принципы), а стиль Cover Letter меняется через cover_letter_prompt.md
 HR_ADAPTATION_RULES = """
 Ты — профессиональный HR-консультант и эксперт по резюме. Твоя задача — адаптировать
 подачу кандидата под конкретную вакансию в сопроводительном письме.
@@ -240,7 +241,7 @@ def interactive_model_selection(llm: LlmConfig, profile: str) -> str:
     env_models_str = os.getenv("OPENROUTER_MODELS", "")
     env_models = [m.strip() for m in env_models_str.split(",") if m.strip()] if env_models_str else []
 
-    # Базовый список (встроенный) – актуальные модели на июль 2026
+    # Базовый список (встроенный) – актуальные модели на август 2026
     default_models = [
         "openrouter/free",
         "cohere/north-mini-code:free",
