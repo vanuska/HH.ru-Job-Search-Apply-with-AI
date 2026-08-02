@@ -150,26 +150,24 @@ class SetupTool:
             print(f"Проверена/создана директория: {d}")
 
     def _copy_missing_files(self):
+        # Копируем исполняемые скрипты из modules в корень
         for fname in CORE_SCRIPTS:
             src = MODULES_DIR / fname
             dst = self.root_dir / fname
             if src.exists() and not dst.exists():
                 shutil.copy2(src, dst)
                 print(f"Скопирован {fname} из modules в корень")
-        src = EXAMPLES_DIR / CONFIG_EXAMPLE
-        dst = self.root_dir / CONFIG_EXAMPLE
-        if src.exists() and not dst.exists():
-            shutil.copy2(src, dst)
-            print(f"Скопирован {CONFIG_EXAMPLE} из examples в корень")
 
-        # Если нет config.yaml в my/, создаём из примера
-        config_src = self.root_dir / CONFIG_EXAMPLE
+        # Создаём рабочий config.yaml в my/
         config_dst = MY_DIR / "config.yaml"
-        if config_src.exists() and not config_dst.exists():
-            shutil.copy2(config_src, config_dst)
-            print(f"Создан базовый config.yaml в {config_dst}")
-        elif not config_dst.exists():
-            base_config = """vacancies:
+        if not config_dst.exists():
+            example_src = EXAMPLES_DIR / CONFIG_EXAMPLE
+            if example_src.exists():
+                shutil.copy2(example_src, config_dst)
+                print(f"Создан config.yaml из примера в {config_dst}")
+            else:
+                # Минимальный конфиг по умолчанию
+                base_config = """vacancies:
   keywords: []
   required_title_words_any: []
   stop_words: []
@@ -193,11 +191,6 @@ limits:
   max_applications_per_run: 10
   delay_between_applications_seconds: 12
 
-application_questions:
-  city: "Москва"
-  salary_expectations: "от 270000 RUB"
-  answers: []
-
 letter:
   language: ru
   max_chars: 1200
@@ -208,8 +201,61 @@ letter:
 schedule:
   run_times: ["09:30", "18:30"]
 """
-            config_dst.write_text(base_config, encoding="utf-8")
-            print(f"Создан минимальный config.yaml в {config_dst}")
+                config_dst.write_text(base_config, encoding="utf-8")
+                print(f"Создан минимальный config.yaml в {config_dst}")
+
+        # Создаём файл вопросов, если его нет
+        questions_file = MY_DIR / "application_questions.yaml"
+        if not questions_file.exists():
+            default_questions = [
+                {
+                    "keywords": ["количество проектов", "сколько проектов"],
+                    "answer": "Более 15 крупных и средних проектов"
+                },
+                {
+                    "keywords": ["предметные области", "области проектов"],
+                    "answer": "Управление IT-инфраструктурой, автоматизация бизнес-процессов, внедрение и сопровождение 1С и CRM систем, информационная безопасность, бюджетирование и тендеры, миграция IT-сервисов в ЦОД, управление командами до 45+ сотрудников"
+                },
+                {
+                    "keywords": ["от старта до завершения", "реализованы вами"],
+                    "answer": "12 проектов реализовано от старта до завершения"
+                },
+                {
+                    "keywords": ["каскадным методом", "waterfall"],
+                    "answer": "8 проектов реализовано каскадным методом (waterfall)"
+                },
+                {
+                    "keywords": ["зарплат", "зп", "ожидания", "доход"],
+                    "answer": "от 270000 руб"
+                },
+                {
+                    "keywords": ["город", "откуда", "проживаете"],
+                    "answer": "Москва"
+                },
+                {
+                    "keywords": ["бюджет проекта", "средний бюджет"],
+                    "answer": "Бюджеты проектов варьировались от 5 до 50 миллионов рублей, средний бюджет составлял 15-20 миллионов рублей"
+                },
+                {
+                    "keywords": ["проект", "реализовали", "завершили"],
+                    "answer": "Более 15 проектов различной сложности и масштаба"
+                },
+                {
+                    "keywords": ["методология", "agile", "scrum", "kanban"],
+                    "answer": "Использовал как каскадную (waterfall), так и гибкие методологии (Agile, Scrum) в зависимости от требований проекта"
+                },
+                {
+                    "keywords": ["команда", "подчиненные", "сотрудники"],
+                    "answer": "Управлял командами до 45+ сотрудников, включая системных администраторов, разработчиков и специалистов по информационной безопасности"
+                }
+            ]
+            try:
+                import yaml
+                with open(questions_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(default_questions, f, allow_unicode=True, default_flow_style=False)
+                print(f"Создан файл вопросов: {questions_file}")
+            except Exception as e:
+                print(f"Не удалось создать файл вопросов: {e}")
 
     def get_menu_items(self):
         items = []
@@ -223,12 +269,13 @@ schedule:
             items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
             items.append((base+3,   "Выбор доступных LLM", self._step_check_models))
             items.append((base+4,   "Настройка конфигурации запросов (config.yaml)", self._step_setup_config))
-            items.append((base+5,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
-            items.append((base+6,   "Настройка промта для AI CL", self._step_setup_prompt))
-            items.append((base+7,   "Тест генерации AI CL", self._step_test_letter))
-            items.append((base+8,   "Запуск || Поиск работы", self._step_run_apply))
-            items.append((base+9,   "Работа с базой данных (отклики, ошибки)", self._step_clean_db))
-            items.append((base+10,  "Выход", self._exit))
+            items.append((base+5,   "Настройка вопросов и ответов для откликов (application_questions.yaml)", self._step_setup_application_questions))
+            items.append((base+6,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
+            items.append((base+7,   "Настройка промта для AI CL", self._step_setup_prompt))
+            items.append((base+8,   "Тест генерации AI CL", self._step_test_letter))
+            items.append((base+9,   "Запуск || Поиск работы", self._step_run_apply))
+            items.append((base+10,  "Работа с базой данных (отклики, ошибки)", self._step_clean_db))
+            items.append((base+11,  "Выход", self._exit))
         return items
 
     def show_menu(self):
@@ -260,6 +307,7 @@ schedule:
             ("my/profile.md", "[PROF]"),
             ("my/config.yaml", "[CONF]"),
             ("my/cover_letter_prompt.md", "[PROMPT]"),
+            ("my/application_questions.yaml", "[QUESTIONS]"),
             ("data/hh_auto_apply.sqlite3", "[DB]"),
         ]
         print("\nСтатус файлов:")
@@ -730,11 +778,6 @@ limits:
   max_applications_per_run: 10
   delay_between_applications_seconds: 12
 
-application_questions:
-  city: "Москва"
-  salary_expectations: "от 270000 RUB"
-  answers: []
-
 letter:
   language: ru
   max_chars: 1200
@@ -779,6 +822,97 @@ schedule:
             print("Редактирование пропущено.")
 
         print("Настройка config.yaml завершена.")
+
+    # ---------- ШАГ: Настройка вопросов и ответов для откликов ----------
+    def _step_setup_application_questions(self):
+        print("\n" + "=" * 60)
+        print("НАСТРОЙКА ВОПРОСОВ И ОТВЕТОВ ДЛЯ ОТКЛИКОВ (APPLICATION_QUESTIONS.YAML)")
+        print("=" * 60)
+
+        questions_file = MY_DIR / "application_questions.yaml"
+        if not questions_file.exists():
+            default_questions = [
+                {
+                    "keywords": ["количество проектов", "сколько проектов"],
+                    "answer": "Более 15 крупных и средних проектов"
+                },
+                {
+                    "keywords": ["предметные области", "области проектов"],
+                    "answer": "Управление IT-инфраструктурой, автоматизация бизнес-процессов, внедрение и сопровождение 1С и CRM систем, информационная безопасность, бюджетирование и тендеры, миграция IT-сервисов в ЦОД, управление командами до 45+ сотрудников"
+                },
+                {
+                    "keywords": ["от старта до завершения", "реализованы вами"],
+                    "answer": "12 проектов реализовано от старта до завершения"
+                },
+                {
+                    "keywords": ["каскадным методом", "waterfall"],
+                    "answer": "8 проектов реализовано каскадным методом (waterfall)"
+                },
+                {
+                    "keywords": ["зарплат", "зп", "ожидания", "доход"],
+                    "answer": "от 270000 руб"
+                },
+                {
+                    "keywords": ["город", "откуда", "проживаете"],
+                    "answer": "Москва"
+                },
+                {
+                    "keywords": ["бюджет проекта", "средний бюджет"],
+                    "answer": "Бюджеты проектов варьировались от 5 до 50 миллионов рублей, средний бюджет составлял 15-20 миллионов рублей"
+                },
+                {
+                    "keywords": ["проект", "реализовали", "завершили"],
+                    "answer": "Более 15 проектов различной сложности и масштаба"
+                },
+                {
+                    "keywords": ["методология", "agile", "scrum", "kanban"],
+                    "answer": "Использовал как каскадную (waterfall), так и гибкие методологии (Agile, Scrum) в зависимости от требований проекта"
+                },
+                {
+                    "keywords": ["команда", "подчиненные", "сотрудники"],
+                    "answer": "Управлял командами до 45+ сотрудников, включая системных администраторов, разработчиков и специалистов по информационной безопасности"
+                }
+            ]
+            try:
+                import yaml
+                with open(questions_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(default_questions, f, allow_unicode=True, default_flow_style=False)
+                print("Создан файл вопросов: {questions_file}")
+            except Exception as e:
+                print(f"Не удалось создать файл: {e}")
+                return
+
+        print("\nТекущее содержимое application_questions.yaml:")
+        print("-" * 60)
+        try:
+            content = questions_file.read_text(encoding="utf-8")
+            print(content)
+        except:
+            print("Не удалось прочитать файл.")
+        print("-" * 60)
+
+        edit = input("\nХотите отредактировать application_questions.yaml вручную? (Y/N): ").strip().upper()
+        if edit in ["Y", "ДА"]:
+            if platform.system() == "Windows":
+                os.startfile(str(questions_file))
+                print("Файл открыт в редакторе по умолчанию. После редактирования сохраните и закройте.")
+            else:
+                try:
+                    subprocess.run(["nano", str(questions_file)])
+                except:
+                    try:
+                        subprocess.run(["vim", str(questions_file)])
+                    except:
+                        try:
+                            subprocess.run(["gedit", str(questions_file)])
+                        except:
+                            print("Не удалось открыть редактор. Отредактируйте файл вручную:")
+                            print(f"  {questions_file}")
+            input("Нажмите Enter, когда закончите редактирование...")
+        else:
+            print("Редактирование пропущено.")
+
+        print("Настройка вопросов и ответов завершена.")
 
     # ---------- ШАГ: Импорт резюме ----------
     def _step_create_profile(self):
@@ -1311,11 +1445,6 @@ filters:
 limits:
   max_applications_per_run: 10
   delay_between_applications_seconds: 12
-
-application_questions:
-  city: "Москва"
-  salary_expectations: "от 270000 RUB"
-  answers: []
 
 letter:
   language: ru
