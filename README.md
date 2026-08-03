@@ -8,15 +8,14 @@
 Так как бесплатные модели могут не корректно работать с русским или вообще, в моменте, не работать, проеряйте работу AI до боевого запуска, через пункты меню: Шаг 1 (при первом запуске) -> Шаг 2 (при первом запуске, или изменении api или модели) -> Шаг 3 -> или Шаг 4 или Шаг 8. 
 
 
-
-
 <div align="center">
-<img width="560" height="538" alt="image" src="https://github.com/user-attachments/assets/ee10da74-6e55-4f86-a94e-2100db626a8c" />
+<img width="560" height="538" alt="image" src="https://github.com/user-attachments/assets/914fba09-b24d-485d-beb7-90b73ebd97c8" />
 </div>
 <br>
 <div align="center">
-<img width="308" height="169" alt="image" src="https://github.com/user-attachments/assets/1e792f1e-655d-413b-96b8-8442d5179a04" />
+<img width="308" height="269" alt="image" src="https://github.com/user-attachments/assets/696423a2-c5f8-458d-ad15-732a1b928dc2" />
 </div>
+
 
 ## Основные возможности
 
@@ -196,21 +195,21 @@ Falling back to hh.ru browser search...
   ```
 - Клонируйте репозиторий в текущую папку:
   ``` bash
-  git clone --branch feature/Telegram --single-branch https://github.com/vanuska/hh-auto-apply-AI-CL.git
+  git clone https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI.git
   ```
-  или если уже создали папку, то в нее:
-  ``` bash
-  git clone --branch feature/Telegram --single-branch https://github.com/vanuska/hh-auto-apply-AI-CL.git .
-  ``` 
 - Перейдите в папку:
   ``` bash
-  cd hh-auto-apply-AI-CL
+  cd HH.ru-Job-Search-Apply-with-AI
   ```
+  или если уже создали папку, то в клонируйте в неё:
+  ``` bash
+  git clone https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI.git .
+  ``` 
 - Установите Python:
   ``` bash
   sudo apt install python3.12-venv -y
   ```
-  Отсюда, повторяте при каждом запуске.
+  Отсюда, повторяйте при каждом запуске.
 - Создайте виртуальное окружение:
   ``` bash
   python3 -m venv .venv
@@ -223,15 +222,7 @@ Falling back to hh.ru browser search...
   ``` bash
   .venv\Scripts\Activate.ps1
   ```
-- При повторном запуске и возникновенни ошибки с одним из модулей, например с ruamel, выполните:   
-  ``` bash
-  pip install --upgrade ruamel.yaml
-  ```
-- или все пакеты
-  ``` bash
-  pip install --upgrade anthropic openai playwright python-dotenv pypdf PyYAML python-docx ruamel.yaml
-  ``` 
-- Перейти к п. Установка и настройка, выполнив в контесте (.venv):
+- Перейти к п. Установка и настройка, выполнив в контексте (.venv):
   ``` bash
   python setup_tool.py
   ```
@@ -241,14 +232,18 @@ Falling back to hh.ru browser search...
 
 Запустите ``` bash python setup_tool.py ``` и последовательно выполняйте шаги:
 
-### Шаг 1: Установка зависимостей
-Устанавливает все Python-пакеты из requirements.txt и браузер Chromium для Playwright. <br> На Linux-сервере без GUI дополнительно устанавливает xvfb для эмуляции графического интерфейса.
-<br> Пакеты: <br> anthropic>=0.70.0, <br> openai>=1.30.0, <br> playwright>=1.45.0, <br> python-dotenv>=1.0.1, <br> pypdf>=4.2.0, <br> PyYAML>=6.0.1, <br> python-docx>=1.2.0,<br> ruamel.yaml>=0.18.0
+### Шаг 1: Проверить обновление пакетов и зависимостей
+Обновляет все пакеты и зависимости
 
-### Шаг 2: Создание .env
-Запрашивает email для HH_USER_AGENT, выбор LLM провайдера (OpenRouter/OpenAI/Anthropic), API ключ и модель. <br> Для OpenRouter доступны варианты: auto (автоматический выбор при каждом запуске), openrouter/free, openai/gpt-4o-mini, anthropic/claude-3.5-sonnet или своя модель, так же можно запустить check_models.py для проверки доступных моделей.
+### Шаг 2: Настройка Telegram бота для уведомлений (один раз)
+
+
+### Шаг 3: Авторизация на HH.ru
+Запускает hh_login.py, который открывает браузер, просит войти в аккаунт и сохраняет сессию в ~/.n8n-files/hh_session.json.
+
+### Шаг 4: Выбор и настройка LLM (env)
+Выбор LLM провайдера (OpenRouter/OpenAI/Anthropic), API ключ и модель. <br> Для OpenRouter доступны варианты: auto (автоматический выбор при каждом запуске), openrouter/free, openai/gpt-4o-mini, anthropic/claude-3.5-sonnet или своя модель, так же можно запустить check_models.py для проверки доступных моделей.
 <br> Формат .env:
-<br> HH_USER_AGENT=hh-auto-apply/1.0 (ваш_email) # Это нужно только для API HH.
 <br> LLM_PROVIDER=openrouter
 <br> OPENROUTER_API_KEY=sk-or-v1-ваш_ключ
 <br>OPENROUTER_MODEL=auto
@@ -256,13 +251,9 @@ Falling back to hh.ru browser search...
 <br> HH_CONFIG_PATH=my/config.yaml
 <br> HH_STATE_DB=data/hh_auto_apply.sqlite3
 
-### Шаг 3: Проверка доступных моделей
-Запускает check_models.py, который показывает все бесплатные модели, доступные на OpenRouter. Модели можно копировать и использовать в .env или в auto_apply.py.
+### Шаг 5: Выбор доступных LLM
 
-### Шаг 4: Создание profile.md
-Предлагает 4 способа: вручную (ввод в консоли), извлечение из PDF, из DOCX/DOC, из TXT. <br> При извлечении из файлов автоматически сохраняет текст в my/profile.md. <br> Файлы должны лежать в папке my/. <br> Формат profile.md - Markdown с разделами: # Имя, Email, Telegram, LinkedIn, ## Желаемая роль, ## Ключевые навыки, ## Опыт работы, ## Образование.
-
-### Шаг 5: Настройка config.yaml
+### Шаг 6: Настройка конфигурации запросов (config.yaml)
 <br> Создает конфигурационный файл из config.example.yaml или базового шаблона. Запрашивает ключевые слова для поиска (через запятую), город и зарплатные ожидания.
 <br>Полная структура config.yaml:
 <br>vacancies:
@@ -309,23 +300,18 @@ Falling back to hh.ru browser search...
 <br>    - "09:30"
  <br>   - "18:30"
 
-### Шаг 6: Настройка шаблона письма
+### Шаг 7: Настройка вопросов и ответов для откликов (application_questions.yaml)
+
+### Шаг 8: Импорт резюме для AI Cover Letter
+Предлагает 4 способа: вручную (ввод в консоли), извлечение из PDF, из DOCX/DOC, из TXT. <br> При извлечении из файлов автоматически сохраняет текст в my/profile.md. <br> Файлы должны лежать в папке my/. <br> Формат profile.md - Markdown с разделами: # Имя, Email, Telegram, LinkedIn, ## Желаемая роль, ## Ключевые навыки, ## Опыт работы, ## Образование.
+
+### Шаг 9: Настройка промта для AI CL
 Создает my/cover_letter_prompt.md с базовым шаблоном для AI. Можно редактировать для изменения стиля, логики и дополнительных инструкций.
 
-### Шаг 7: Авторизация на HH.ru
-Запускает hh_login.py, который открывает браузер, просит войти в аккаунт и сохраняет сессию в ~/.n8n-files/hh_session.json.
-
-### Шаг 8: Тест генерации письма
+### Шаг 10: Тест генерации письма
 Запускает test_letter.py, который загружает профиль, LLM конфиг и генерирует тестовое письмо для вымышленной вакансии, показывая результат и длину письма.
 
-### Шаг 9: Очистка базы данных
-Запускает clean_db.py, который создает бэкап data/backups/hh_auto_apply_YYYYMMDD_HHMMSS.sqlite3 и очищает таблицу vacancy_runs.
-
-#Используйте Очистку базы данных после нескольких dry_run во избежании ошибок перед запуском боевого режима с реальными откликами.
-
-#Также доступен просмотр содержимого БД. Ошибки, отклики.
-
-### Шаг 10: Запуск auto_apply.py
+### Шаг 11: Запуск || Поиск работы
 Предлагает два режима: dry-run (--once, без отправки) и реальный запуск (--once --apply). На Linux-сервере без GUI предлагает выбрать headless-режим или использование xvfb-run. При dry-run записывает в БД статус "dry_run".
 
 ## Ручные параметры auto_apply.py
@@ -364,6 +350,15 @@ python auto_apply.py --schedule --apply
 <br>    "gpt-oss-20b:free",
 <br>]
 <br>Чтобы добавить новую модель, вставьте её строку в этот список.<br> Чтобы убрать неработающую модель, закомментируйте или удалите строку. <br>Модели можно узнать через check_models.py.
+
+### Шаг 12: Проверить отклики (новые сообщения в чате)
+
+### Шаг 13: Работа с базой данных (отклики, ошибки)
+Запускает clean_db.py, который создает бэкап data/backups/hh_auto_apply_YYYYMMDD_HHMMSS.sqlite3 и очищает таблицу vacancy_runs.
+#Используйте Очистку базы данных после нескольких dry_run во избежание ошибок перед запуском боевого режима с реальными откликами.
+#Также доступен просмотр содержимого БД. Ошибки, отклики.
+
+### Шаг 14: Выход
 
 ## Как зафиксировать модель без интерактивного выбора
 
