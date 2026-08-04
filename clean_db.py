@@ -58,6 +58,8 @@ def show_stats_chat(conn):
     total = cursor.fetchone()[0]
     cursor.execute("SELECT MIN(sent_at), MAX(sent_at) FROM chat_notifications")
     min_date, max_date = cursor.fetchone()
+    cursor.execute("SELECT SUM(last_unread_count) FROM chat_notifications")
+    sum_unread = cursor.fetchone()[0] or 0
 
     print("\n" + "="*60)
     print("СТАТИСТИКА УВЕДОМЛЕНИЙ О ЧАТАХ (chat_notifications)")
@@ -65,6 +67,7 @@ def show_stats_chat(conn):
     print(f"Всего записей: {total}")
     if min_date:
         print(f"Период: с {min_date[:10]} по {max_date[:10]}")
+    print(f"Суммарное количество непрочитанных: {sum_unread}")
     print("="*60)
     return total
 
@@ -124,44 +127,24 @@ def filter_and_display_vacancy(conn, filters=None, sort_by=None, order='DESC'):
 
 
 def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
-    """Выводит записи из chat_notifications с фильтрацией и сортировкой."""
+    """Выводит записи из chat_notifications с фильтрацией и сортировкой, включая company, vacancy_title, preview, last_unread_count."""
     cursor = conn.cursor()
-    
-    # Проверяем, есть ли колонки company, vacancy_title, preview
-    cursor.execute("PRAGMA table_info(chat_notifications)")
-    columns = [col[1] for col in cursor.fetchall()]
-    has_company = 'company' in columns
-    has_vacancy = 'vacancy_title' in columns
-    has_preview = 'preview' in columns
-    
-    # Строим запрос в зависимости от наличия колонок
-    select_fields = "chat_id, sent_at"
-    if has_company:
-        select_fields += ", company"
-    else:
-        select_fields += ", '' as company"
-    if has_vacancy:
-        select_fields += ", vacancy_title"
-    else:
-        select_fields += ", '' as vacancy_title"
-    if has_preview:
-        select_fields += ", preview"
-    else:
-        select_fields += ", '' as preview"
-    
-    query = f"SELECT {select_fields} FROM chat_notifications WHERE 1=1"
+    query = "SELECT chat_id, sent_at, company, vacancy_title, preview, last_unread_count FROM chat_notifications WHERE 1=1"
     params = []
     
     if filters:
         if filters.get('chat_id'):
             query += " AND chat_id LIKE ?"
             params.append(f"%{filters['chat_id']}%")
-        if has_company and filters.get('company'):
+        if filters.get('company'):
             query += " AND company LIKE ?"
             params.append(f"%{filters['company']}%")
-        if has_vacancy and filters.get('vacancy'):
+        if filters.get('vacancy'):
             query += " AND vacancy_title LIKE ?"
             params.append(f"%{filters['vacancy']}%")
+        if filters.get('min_unread'):
+            query += " AND last_unread_count >= ?"
+            params.append(int(filters['min_unread']))
         if filters.get('date_from'):
             query += " AND sent_at >= ?"
             params.append(filters['date_from'])
@@ -169,13 +152,8 @@ def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
             query += " AND sent_at <= ?"
             params.append(filters['date_to'] + " 23:59:59")
     
-    # Сортировка
     if sort_by:
-        allowed_sort = ['sent_at', 'chat_id']
-        if has_company:
-            allowed_sort.append('company')
-        if has_vacancy:
-            allowed_sort.append('vacancy_title')
+        allowed_sort = ['sent_at', 'chat_id', 'company', 'vacancy_title', 'last_unread_count']
         if sort_by in allowed_sort:
             query += f" ORDER BY {sort_by} {order}"
         else:
@@ -193,18 +171,8 @@ def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
     print(f"\nНайдено записей: {len(rows)}")
     print("-"*80)
     for idx, row in enumerate(rows, 1):
-        # row содержит (chat_id, sent_at, company, vacancy_title, preview)
-        chat_id = row[0]
-        sent_at = row[1]
-        company = row[2] if len(row) > 2 else ''
-        vacancy = row[3] if len(row) > 3 else ''
-        preview = row[4] if len(row) > 4 else ''
-        
-        # Выводим компанию и вакансию, если они есть
-        if company or vacancy:
-            print(f"{idx:3}. {sent_at[:16]} | {company[:20] if company else '':20} | {vacancy[:30] if vacancy else '':30}")
-        else:
-            print(f"{idx:3}. {sent_at[:16]} | chat_id: {chat_id}")
+        chat_id, sent_at, company, vacancy, preview, unread = row
+        print(f"{idx:3}. {sent_at[:16]} | unread:{unread:2} | {company[:20] if company else '':20} | {vacancy[:30] if vacancy else '':30}")
         if preview:
             print(f"     Превью: {preview[:100]}...")
         print("-"*80)
@@ -346,19 +314,9 @@ def interactive_menu():
                     if sub == '1':
                         print("\n--- Фильтры (оставьте пустым для пропуска) ---")
                         chat_id_filter = input("ID чата (часть): ").strip()
-                        # Проверяем, есть ли колонки company и vacancy_title, чтобы предложить фильтр
-                        cursor = conn.cursor()
-                        cursor.execute("PRAGMA table_info(chat_notifications)")
-                        columns = [col[1] for col in cursor.fetchall()]
-                        has_company = 'company' in columns
-                        has_vacancy = 'vacancy_title' in columns
-                        
-                        company_filter = ""
-                        vacancy_filter = ""
-                        if has_company:
-                            company_filter = input("Компания (часть названия): ").strip()
-                        if has_vacancy:
-                            vacancy_filter = input("Вакансия (часть названия): ").strip()
+                        company_filter = input("Компания (часть названия): ").strip()
+                        vacancy_filter = input("Вакансия (часть названия): ").strip()
+                        min_unread = input("Минимальное количество непрочитанных: ").strip()
                         date_from = input("Дата с (ГГГГ-ММ-ДД): ").strip()
                         date_to = input("Дата по (ГГГГ-ММ-ДД): ").strip()
                         
@@ -369,18 +327,15 @@ def interactive_menu():
                             filters['company'] = company_filter
                         if vacancy_filter:
                             filters['vacancy'] = vacancy_filter
+                        if min_unread and min_unread.isdigit():
+                            filters['min_unread'] = min_unread
                         if date_from:
                             filters['date_from'] = date_from
                         if date_to:
                             filters['date_to'] = date_to
                         
                         print("\n--- Сортировка ---")
-                        sort_options = "sent_at, chat_id"
-                        if has_company:
-                            sort_options += ", company"
-                        if has_vacancy:
-                            sort_options += ", vacancy_title"
-                        print(f"Поля: {sort_options}")
+                        print("Поля: sent_at, chat_id, company, vacancy_title, last_unread_count")
                         sort_by = input("Сортировать по (Enter = sent_at): ").strip() or 'sent_at'
                         order = input("Порядок (ASC/DESC, Enter = DESC): ").strip().upper() or 'DESC'
                         
