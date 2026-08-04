@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Основонй скрипт для поиска и откликов на HH.ru за основу взят hh_auto_apply. 
-Мои проекты github.com/vanuska.
+Основонй скрипт для поиска и откликов на HH.ru за основу взят hh_auto_apply
+Мои проекты github.com/vanuska
 """
 
 from __future__ import annotations
