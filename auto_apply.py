@@ -189,16 +189,21 @@ def test_openrouter_model(api_key: str, model: str) -> bool:
         client = OpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
-            timeout=5.0
+            timeout=10.0,
+            default_headers={
+                "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                "X-Title": "HH.ru-Job-Search-Apply-with-AI",
+            }
         )
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": "ok"}],
-            max_tokens=2,
-            temperature=0.1
+            messages=[{"role": "user", "content": "Say 'ok'"}],
+            max_tokens=20,
+            temperature=0.0
         )
-        return True
-    except Exception:
+        return response.choices and len(response.choices[0].message.content.strip()) > 0
+    except Exception as e:
+        print(f"Ошибка проверки модели {model}: {e}")
         return False
 
 
@@ -231,7 +236,11 @@ def test_model_with_sample_letter(llm: LlmConfig, model: str, profile: str) -> t
         client = OpenAI(
             api_key=llm.api_key,
             base_url=llm.base_url or "https://openrouter.ai/api/v1",
-            timeout=15.0
+            timeout=15.0,
+            default_headers={
+                "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                "X-Title": "HH.ru-Job-Search-Apply-with-AI",
+            }
         )
         response = client.chat.completions.create(
             model=model,
@@ -241,10 +250,6 @@ def test_model_with_sample_letter(llm: LlmConfig, model: str, profile: str) -> t
             ],
             temperature=0.7,
             max_tokens=200,
-            extra_headers={
-                "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
-                "X-Title": "HH.ru-Job-Search-Apply-with-AI",
-            },
         )
         raw_text = (response.choices[0].message.content or "").strip()
         if raw_text:
@@ -772,20 +777,29 @@ def read_pdf_text(path: Path) -> str:
 
 
 def load_profile() -> str:
+    """Загружает профиль из my/profile.md или PDF."""
+    print("📂 Загрузка профиля...")
     profile_md = MY_DIR / "profile.md"
     if profile_md.exists():
-        return profile_md.read_text(encoding="utf-8").strip()
+        content = profile_md.read_text(encoding="utf-8").strip()
+        print(f"   ✅ Профиль загружен из my/profile.md ({len(content)} символов)")
+        return content
 
     pdf_paths = sorted(MY_DIR.glob("*.pdf"))
+    if not pdf_paths:
+        raise RuntimeError("No profile found. Add my/profile.md or a readable PDF resume to my/")
+    print(f"   📄 Найдено PDF: {', '.join(p.name for p in pdf_paths)}")
     chunks: list[str] = []
     for path in pdf_paths:
         text = read_pdf_text(path)
         if text:
             chunks.append(f"Источник: {path.name}\n{text}")
+            print(f"   📄 Извлечено из {path.name}: {len(text)} символов")
 
     profile = "\n\n".join(chunks).strip()
     if not profile:
         raise RuntimeError("No profile found. Add my/profile.md or a readable PDF resume to my/")
+    print(f"   ✅ Итоговый профиль: {len(profile)} символов")
     return profile
 
 
@@ -1240,7 +1254,11 @@ def generate_answers_for_questions(
             client = OpenAI(
                 api_key=llm.api_key,
                 base_url=llm.base_url or "https://openrouter.ai/api/v1",
-                timeout=30.0
+                timeout=30.0,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                    "X-Title": "HH.ru-Job-Search-Apply-with-AI",
+                }
             )
             response = client.chat.completions.create(
                 model=llm.model,
@@ -1250,10 +1268,6 @@ def generate_answers_for_questions(
                 ],
                 temperature=0.3,
                 max_tokens=len(questions) * 200,
-                extra_headers={
-                    "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
-                    "X-Title": "HH.ru-Job-Search-Apply-with-AI",
-                },
             )
             raw = response.choices[0].message.content or ""
         elif llm.provider == "openai":
@@ -1563,16 +1577,22 @@ def seconds_until_next_run(run_times: list[str]) -> int:
 
 
 def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
+    print("\n🚀 ЗАПУСК ОДНОКРАТНОГО ПОИСКА И ОТКЛИКОВ")
+    print("=" * 60)
+
     state_db = Path(os.getenv("HH_STATE_DB") or args.state_db or DEFAULT_STATE_DB)
     if not state_db.is_absolute():
         state_db = ROOT_DIR / state_db
     conn = init_db(state_db)
 
+    print("📂 Шаг 1: Загрузка профиля...")
     profile = load_profile()
+
+    print("🤖 Шаг 2: Инициализация LLM...")
     llm = load_llm_config()
 
     if llm.model == "auto":
-        print("Запуск интерактивного выбора модели...")
+        print("🔄 Запуск интерактивного выбора модели...")
         selected_model = interactive_model_selection(llm, profile)
         llm = LlmConfig(
             provider=llm.provider,
@@ -1580,11 +1600,11 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
             api_key=llm.api_key,
             base_url=llm.base_url
         )
-        print(f"Финальная модель: {selected_model}")
+        print(f"✅ Финальная модель: {selected_model}")
     elif llm.provider == "openrouter":
-        print(f"Проверяем модель {llm.model}...")
+        print(f"🔍 Проверяем модель {llm.model}...")
         if not test_openrouter_model(llm.api_key, llm.model):
-            print(f"Модель {llm.model} не работает, запускаем интерактивный выбор...")
+            print(f"⚠️ Модель {llm.model} не работает, запускаем интерактивный выбор...")
             selected_model = interactive_model_selection(llm, profile)
             llm = LlmConfig(
                 provider=llm.provider,
@@ -1592,18 +1612,28 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
                 api_key=llm.api_key,
                 base_url=llm.base_url
             )
-            print(f"Финальная модель: {selected_model}")
+            print(f"✅ Финальная модель: {selected_model}")
 
-    print(f"LLM provider: {llm.provider} ({llm.model})")
+    print(f"✅ LLM provider: {llm.provider} ({llm.model})")
 
+    print("\n🔍 Шаг 3: Поиск вакансий...")
+    print("   (браузер может открыться и закрыться, это нормально)")
     vacancies = search_vacancies(config, conn, headless=bool(args.headless))
+    print(f"   ✅ Найдено вакансий: {len(vacancies)}")
+
+    if not vacancies:
+        print("⚠️ Нет новых вакансий, подходящих под фильтры.")
+        conn.close()
+        return
+
     limits = get_nested(config, "limits", {})
     max_per_run = int(args.max_applications or limits.get("max_applications_per_run", 5))
     delay = int(limits.get("delay_between_applications_seconds", 12))
 
-    print(f"Found vacancies: {len(vacancies)}")
-    print(f"Mode: {'APPLY' if args.apply else 'DRY RUN'}")
-    print(f"State DB: {state_db}")
+    print(f"\n📊 Лимит откликов за запуск: {max_per_run}")
+    print(f"⏱️ Задержка между откликами: {delay} сек")
+    print(f"💾 База данных: {state_db}")
+    print(f"🔄 Режим: {'ОТПРАВКА ОТКЛИКОВ' if args.apply else 'СИМУЛЯЦИЯ (DRY-RUN)'}")
 
     sent_or_planned = 0
     browser_context = None
@@ -1615,6 +1645,7 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
 
     try:
         if args.apply:
+            print("\n🌐 Инициализация браузера для отправки откликов...")
             state_path = session_file()
             if not state_path.exists():
                 raise RuntimeError(f"HH session not found: {state_path}. Run python3 hh_login.py")
@@ -1622,48 +1653,56 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
             browser = playwright.chromium.launch(headless=bool(args.headless), slow_mo=250)
             browser_context = browser.new_context(storage_state=str(state_path))
             page = browser_context.new_page()
+            print("   ✅ Браузер запущен")
 
-        for vacancy in vacancies:
+        for idx, vacancy in enumerate(vacancies, 1):
             if sent_or_planned >= max_per_run:
+                print(f"\n⏹️ Достигнут лимит откликов ({max_per_run}), остановка.")
                 break
             if skip_already_applied_enabled(config) and already_processed(
                 conn,
                 vacancy.id,
                 include_dry_run=not args.apply,
             ):
+                print(f"⏭️ Пропускаем уже обработанную вакансию #{idx}: {vacancy.title}")
                 continue
 
-            print(f"\n{vacancy.title} | {vacancy.employer}")
-            if vacancy.schedule_name:
-                print(f"Format: {vacancy.schedule_name}")
-            print(vacancy.url)
+            print(f"\n📌 Обработка вакансии {idx}/{len(vacancies)}")
+            print(f"   🏢 {vacancy.employer} — {vacancy.title}")
+            print(f"   🔗 {vacancy.url}")
 
+            print("   ✍️ Генерация письма...")
             letter = generate_cover_letter(llm, profile, vacancy, config)
             if not letter or not re.search(r'[А-Яа-я]', letter):
                 error_msg = "Letter generation failed (empty or no Russian)"
-                print(f"Error: {error_msg}")
+                print(f"   ❌ Ошибка: {error_msg}")
                 record_result(conn, vacancy, "error", error_msg, "")
                 continue
 
-            print(f"Letter:\n{letter}\n")
+            print(f"   📝 Письмо ({len(letter)} символов):")
+            print(f"      {letter[:200]}...")
 
             if args.apply:
+                print("   📤 Отправка отклика...")
                 assert page is not None
                 status, reason = apply_to_vacancy(page, vacancy, letter, config, llm, profile)
                 record_result(conn, vacancy, status, reason, letter)
-                print(f"Result: {status} ({reason})")
+                print(f"   ✅ Результат: {status} ({reason})")
                 if status == "success":
                     applied_details.append({
                         "title": vacancy.title,
                         "employer": vacancy.employer,
                         "url": vacancy.url,
                     })
+                if status == "error":
+                    print(f"   🔍 Отладка сохранена в data/debug/")
                 time.sleep(delay)
             else:
                 record_result(conn, vacancy, "dry_run", "Generated letter only", letter)
-                print("Result: dry_run")
+                print("   🔄 Симуляция (dry-run)")
 
             sent_or_planned += 1
+
     finally:
         if browser_context is not None:
             browser_context.close()
@@ -1676,6 +1715,18 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
     total_found = len(vacancies)
     applied_count = len(applied_details)
     dry_run_count = sent_or_planned - applied_count if args.apply else sent_or_planned
+
+    print("\n" + "=" * 60)
+    print("📊 ИТОГИ ЗАПУСКА")
+    print("=" * 60)
+    print(f"Найдено вакансий:           {total_found}")
+    print(f"Обработано:                 {sent_or_planned}")
+    if args.apply:
+        print(f"Отправлено откликов:       {applied_count}")
+        print(f"Ошибок/пропусков:          {sent_or_planned - applied_count}")
+    else:
+        print(f"Симуляций (dry-run):       {dry_run_count}")
+    print("=" * 60)
 
     if vacancies:
         msg_lines = [
