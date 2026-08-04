@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram.
-Сохраняет в БД детали чата: компанию, вакансию, превью.
+Отдельный скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram.
+Сохраняет в БД детали чата и количество непрочитанных.
 """
 
 import argparse
@@ -49,7 +49,7 @@ def get_nested(config: dict[str, Any], path: str, default: Any) -> Any:
 
 
 def init_db(path: Path) -> sqlite3.Connection:
-    """Инициализирует базу данных, создавая необходимые таблицы."""
+    """Инициализирует базу данных, создавая необходимые таблицы и добавляя столбцы при необходимости."""
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.execute(
@@ -82,10 +82,26 @@ def init_db(path: Path) -> sqlite3.Connection:
             sent_at TEXT NOT NULL,
             company TEXT,
             vacancy_title TEXT,
-            preview TEXT
+            preview TEXT,
+            last_unread_count INTEGER DEFAULT 0
         )
         """
     )
+
+    # Проверяем, есть ли столбец last_unread_count в существующей таблице
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(chat_notifications)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'last_unread_count' not in columns:
+        conn.execute("ALTER TABLE chat_notifications ADD COLUMN last_unread_count INTEGER DEFAULT 0")
+        print("Добавлен столбец last_unread_count в chat_notifications")
+
+    # Проверяем, есть ли столбцы company, vacancy_title, preview (если нет, добавляем)
+    for col in ['company', 'vacancy_title', 'preview']:
+        if col not in columns:
+            conn.execute(f"ALTER TABLE chat_notifications ADD COLUMN {col} TEXT")
+            print(f"Добавлен столбец {col} в chat_notifications")
+
     conn.commit()
     return conn
 
@@ -252,13 +268,30 @@ def check_chat_updates(config: dict[str, Any], conn: sqlite3.Connection | None =
                         print("Не удалось определить chat_id, пропускаем.")
                         continue
 
-                    # Проверяем, было ли уже отправлено уведомление об этом чате за последние 7 дней
-                    row = conn.execute(
-                        "SELECT sent_at FROM chat_notifications WHERE chat_id = ? AND sent_at > datetime('now', '-7 days')",
+                    # Проверяем существующую запись
+                    existing = conn.execute(
+                        "SELECT sent_at, last_unread_count FROM chat_notifications WHERE chat_id = ?",
                         (chat_id,)
                     ).fetchone()
-                    if row:
-                        print(f"Уведомление для чата {chat_id} уже отправлено недавно ({row[0]}), пропускаем.")
+
+                    should_send = False
+                    if existing is None:
+                        print(f"Нет записи для чата {chat_id}, отправляем уведомление.")
+                        should_send = True
+                    else:
+                        last_sent_at = existing[0]
+                        last_unread = existing[1] or 0
+                        print(f"Чат {chat_id}: current unread={unread_count}, last unread={last_unread}, sent_at={last_sent_at}")
+                        if unread_count > last_unread:
+                            print(f"Количество непрочитанных увеличилось (было {last_unread}, стало {unread_count}), отправляем.")
+                            should_send = True
+                        elif dt.datetime.now() - dt.datetime.fromisoformat(last_sent_at) > dt.timedelta(days=7):
+                            print(f"Прошло больше 7 дней, отправляем повторно (на всякий случай).")
+                            should_send = True
+                        else:
+                            print(f"Уведомление не требуется (unread не увеличился, прошло <7 дней).")
+
+                    if not should_send:
                         continue
 
                     new_messages.append({
@@ -282,14 +315,14 @@ def check_chat_updates(config: dict[str, Any], conn: sqlite3.Connection | None =
                     if item['preview']:
                         msg_lines.append(f"Превью: {item['preview'][:100]}...")
                     msg_lines.append("")
-                    # Записываем в БД с дополнительными полями
+                    # Обновляем запись, сохраняя новое количество непрочитанных
                     conn.execute(
                         """INSERT OR REPLACE INTO chat_notifications 
-                           (chat_id, sent_at, company, vacancy_title, preview) 
-                           VALUES (?, datetime('now'), ?, ?, ?)""",
-                        (item['chat_id'], item['company'], item['vacancy'], item['preview'])
+                           (chat_id, sent_at, company, vacancy_title, preview, last_unread_count) 
+                           VALUES (?, datetime('now'), ?, ?, ?, ?)""",
+                        (item['chat_id'], item['company'], item['vacancy'], item['preview'], item['count'])
                     )
-                    print(f"Записано уведомление для чата {item['chat_id']} в {dt.datetime.now()}")
+                    print(f"Записано уведомление для чата {item['chat_id']} с unread={item['count']}")
                 conn.commit()
                 full_msg = "\n".join(msg_lines)
                 send_telegram_notification(full_msg, parse_mode="HTML")
@@ -306,8 +339,8 @@ def check_chat_updates(config: dict[str, Any], conn: sqlite3.Connection | None =
             context.close()
             browser.close()
 
-    # Очищаем старые записи (старше 7 дней)
-    conn.execute("DELETE FROM chat_notifications WHERE sent_at < datetime('now', '-7 days')")
+    # Очищаем старые записи (старше 30 дней, чтобы не забивать БД)
+    conn.execute("DELETE FROM chat_notifications WHERE sent_at < datetime('now', '-30 days')")
     conn.commit()
     set_last_chat_check(conn, now)
     if close_conn:
