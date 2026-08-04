@@ -20,7 +20,6 @@ BACKUP_DIR = Path("data/backups")
 
 
 def ensure_db():
-    """Проверяет наличие БД"""
     if not DB_PATH.exists():
         print(f"База данных не найдена: {DB_PATH}")
         return False
@@ -28,12 +27,10 @@ def ensure_db():
 
 
 def connect_db():
-    """Подключается к БД и возвращает соединение"""
     return sqlite3.connect(DB_PATH)
 
 
 def show_stats_vacancy(conn):
-    """Статистика по таблице vacancy_runs"""
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM vacancy_runs")
     total = cursor.fetchone()[0]
@@ -56,7 +53,6 @@ def show_stats_vacancy(conn):
 
 
 def show_stats_chat(conn):
-    """Статистика по таблице chat_notifications"""
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM chat_notifications")
     total = cursor.fetchone()[0]
@@ -74,7 +70,6 @@ def show_stats_chat(conn):
 
 
 def filter_and_display_vacancy(conn, filters=None, sort_by=None, order='DESC'):
-    """Выводит записи из vacancy_runs с фильтрацией и сортировкой"""
     cursor = conn.cursor()
     query = "SELECT vacancy_id, title, employer, status, reason, url, substr(letter, 1, 200) as letter_preview, updated_at FROM vacancy_runs WHERE 1=1"
     params = []
@@ -129,15 +124,44 @@ def filter_and_display_vacancy(conn, filters=None, sort_by=None, order='DESC'):
 
 
 def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
-    """Выводит записи из chat_notifications с фильтрацией и сортировкой"""
+    """Выводит записи из chat_notifications с фильтрацией и сортировкой."""
     cursor = conn.cursor()
-    query = "SELECT chat_id, sent_at FROM chat_notifications WHERE 1=1"
+    
+    # Проверяем, есть ли колонки company, vacancy_title, preview
+    cursor.execute("PRAGMA table_info(chat_notifications)")
+    columns = [col[1] for col in cursor.fetchall()]
+    has_company = 'company' in columns
+    has_vacancy = 'vacancy_title' in columns
+    has_preview = 'preview' in columns
+    
+    # Строим запрос в зависимости от наличия колонок
+    select_fields = "chat_id, sent_at"
+    if has_company:
+        select_fields += ", company"
+    else:
+        select_fields += ", '' as company"
+    if has_vacancy:
+        select_fields += ", vacancy_title"
+    else:
+        select_fields += ", '' as vacancy_title"
+    if has_preview:
+        select_fields += ", preview"
+    else:
+        select_fields += ", '' as preview"
+    
+    query = f"SELECT {select_fields} FROM chat_notifications WHERE 1=1"
     params = []
     
     if filters:
         if filters.get('chat_id'):
             query += " AND chat_id LIKE ?"
             params.append(f"%{filters['chat_id']}%")
+        if has_company and filters.get('company'):
+            query += " AND company LIKE ?"
+            params.append(f"%{filters['company']}%")
+        if has_vacancy and filters.get('vacancy'):
+            query += " AND vacancy_title LIKE ?"
+            params.append(f"%{filters['vacancy']}%")
         if filters.get('date_from'):
             query += " AND sent_at >= ?"
             params.append(filters['date_from'])
@@ -145,8 +169,13 @@ def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
             query += " AND sent_at <= ?"
             params.append(filters['date_to'] + " 23:59:59")
     
+    # Сортировка
     if sort_by:
         allowed_sort = ['sent_at', 'chat_id']
+        if has_company:
+            allowed_sort.append('company')
+        if has_vacancy:
+            allowed_sort.append('vacancy_title')
         if sort_by in allowed_sort:
             query += f" ORDER BY {sort_by} {order}"
         else:
@@ -164,15 +193,26 @@ def filter_and_display_chat(conn, filters=None, sort_by=None, order='DESC'):
     print(f"\nНайдено записей: {len(rows)}")
     print("-"*80)
     for idx, row in enumerate(rows, 1):
-        chat_id, sent_at = row
-        print(f"{idx:3}. {sent_at[:16]} | chat_id: {chat_id}")
+        # row содержит (chat_id, sent_at, company, vacancy_title, preview)
+        chat_id = row[0]
+        sent_at = row[1]
+        company = row[2] if len(row) > 2 else ''
+        vacancy = row[3] if len(row) > 3 else ''
+        preview = row[4] if len(row) > 4 else ''
+        
+        # Выводим компанию и вакансию, если они есть
+        if company or vacancy:
+            print(f"{idx:3}. {sent_at[:16]} | {company[:20] if company else '':20} | {vacancy[:30] if vacancy else '':30}")
+        else:
+            print(f"{idx:3}. {sent_at[:16]} | chat_id: {chat_id}")
+        if preview:
+            print(f"     Превью: {preview[:100]}...")
         print("-"*80)
     
     return rows
 
 
 def view_full_letter(conn, vacancy_id):
-    """Показывает полный текст письма для указанной вакансии"""
     cursor = conn.cursor()
     cursor.execute("SELECT letter FROM vacancy_runs WHERE vacancy_id = ?", (vacancy_id,))
     row = cursor.fetchone()
@@ -187,7 +227,6 @@ def view_full_letter(conn, vacancy_id):
 
 
 def delete_vacancy_record(conn, vacancy_id):
-    """Удаляет запись из vacancy_runs по vacancy_id"""
     cursor = conn.cursor()
     cursor.execute("DELETE FROM vacancy_runs WHERE vacancy_id = ?", (vacancy_id,))
     conn.commit()
@@ -195,7 +234,6 @@ def delete_vacancy_record(conn, vacancy_id):
 
 
 def delete_chat_record(conn, chat_id):
-    """Удаляет запись из chat_notifications по chat_id"""
     cursor = conn.cursor()
     cursor.execute("DELETE FROM chat_notifications WHERE chat_id = ?", (chat_id,))
     conn.commit()
@@ -203,7 +241,6 @@ def delete_chat_record(conn, chat_id):
 
 
 def clear_all_chat_notifications(conn):
-    """Полностью очищает таблицу chat_notifications"""
     cursor = conn.cursor()
     cursor.execute("DELETE FROM chat_notifications")
     conn.commit()
@@ -211,7 +248,6 @@ def clear_all_chat_notifications(conn):
 
 
 def interactive_menu():
-    """Интерактивное меню для работы с БД"""
     if not ensure_db():
         return
     
@@ -222,7 +258,6 @@ def interactive_menu():
             print("УПРАВЛЕНИЕ БАЗОЙ ДАННЫХ")
             print("="*60)
             
-            # Показываем статистику по обеим таблицам
             show_stats_vacancy(conn)
             show_stats_chat(conn)
             
@@ -235,7 +270,6 @@ def interactive_menu():
             choice = input("\nВыберите действие (1-4): ").strip()
             
             if choice == '1':
-                # Работа с vacancy_runs
                 while True:
                     print("\n--- ОТКЛИКИ (vacancy_runs) ---")
                     print("  1. Вывести записи (с фильтрацией)")
@@ -245,7 +279,6 @@ def interactive_menu():
                     sub = input("Выберите (1-4): ").strip()
                     
                     if sub == '1':
-                        # Фильтры
                         print("\n--- Фильтры (оставьте пустым для пропуска) ---")
                         status = input("Статус (success/skipped/error/dry_run, можно через запятую): ").strip()
                         company = input("Компания (часть названия): ").strip()
@@ -302,7 +335,6 @@ def interactive_menu():
                         print("Неверный выбор.")
             
             elif choice == '2':
-                # Работа с chat_notifications
                 while True:
                     print("\n--- УВЕДОМЛЕНИЯ О ЧАТАХ (chat_notifications) ---")
                     print("  1. Вывести записи (с фильтрацией)")
@@ -314,23 +346,45 @@ def interactive_menu():
                     if sub == '1':
                         print("\n--- Фильтры (оставьте пустым для пропуска) ---")
                         chat_id_filter = input("ID чата (часть): ").strip()
+                        # Проверяем, есть ли колонки company и vacancy_title, чтобы предложить фильтр
+                        cursor = conn.cursor()
+                        cursor.execute("PRAGMA table_info(chat_notifications)")
+                        columns = [col[1] for col in cursor.fetchall()]
+                        has_company = 'company' in columns
+                        has_vacancy = 'vacancy_title' in columns
+                        
+                        company_filter = ""
+                        vacancy_filter = ""
+                        if has_company:
+                            company_filter = input("Компания (часть названия): ").strip()
+                        if has_vacancy:
+                            vacancy_filter = input("Вакансия (часть названия): ").strip()
                         date_from = input("Дата с (ГГГГ-ММ-ДД): ").strip()
                         date_to = input("Дата по (ГГГГ-ММ-ДД): ").strip()
                         
                         filters = {}
                         if chat_id_filter:
                             filters['chat_id'] = chat_id_filter
+                        if company_filter:
+                            filters['company'] = company_filter
+                        if vacancy_filter:
+                            filters['vacancy'] = vacancy_filter
                         if date_from:
                             filters['date_from'] = date_from
                         if date_to:
                             filters['date_to'] = date_to
                         
                         print("\n--- Сортировка ---")
-                        print("Поля: sent_at, chat_id")
+                        sort_options = "sent_at, chat_id"
+                        if has_company:
+                            sort_options += ", company"
+                        if has_vacancy:
+                            sort_options += ", vacancy_title"
+                        print(f"Поля: {sort_options}")
                         sort_by = input("Сортировать по (Enter = sent_at): ").strip() or 'sent_at'
                         order = input("Порядок (ASC/DESC, Enter = DESC): ").strip().upper() or 'DESC'
                         
-                        rows = filter_and_display_chat(conn, filters, sort_by, order)
+                        filter_and_display_chat(conn, filters, sort_by, order)
                     
                     elif sub == '2':
                         chat_id = input("Введите chat_id для удаления: ").strip()
@@ -349,7 +403,6 @@ def interactive_menu():
                         print("Неверный выбор.")
             
             elif choice == '3':
-                # Полная очистка с бэкапом
                 confirm = input("\nВНИМАНИЕ! Это удалит все записи из БД (обе таблицы). Создать бэкап и очистить? (Y/N): ").strip().upper()
                 if confirm in ['Y', 'ДА']:
                     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -374,7 +427,6 @@ def interactive_menu():
 
 
 def main():
-    """Главная функция"""
     interactive_menu()
 
 
