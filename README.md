@@ -14,6 +14,9 @@
 <div align="center">
 <img width="308" height="269" alt="image" src="https://github.com/user-attachments/assets/696423a2-c5f8-458d-ad15-732a1b928dc2" />
 </div>
+<div align="center">
+<img width="307" height="108" alt="image" src="https://github.com/user-attachments/assets/e670db0f-1527-4fbe-aeea-52b827b1d28d" />
+</div>
 
 ## Основные возможности
 
