@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для поиска LLM для OpenRouter.
+Скрипт для поиска LLM для OpenRouter
 """
 
 import urllib.request
