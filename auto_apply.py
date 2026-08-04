@@ -1712,9 +1712,20 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
             playwright.stop()
         conn.close()
 
-    total_found = len(vacancies)
-    applied_count = len(applied_details)
-    dry_run_count = sent_or_planned - applied_count if args.apply else sent_or_planned
+        total_found = len(vacancies)
+    
+    # Подсчёт статистики в зависимости от режима
+    if args.apply:
+        # Реальный режим: отдельно успешные и ошибки
+        applied_count = len(applied_details)
+        error_count = sent_or_planned - applied_count  # все неудачные попытки (включая ошибки отправки)
+        # dry_run_count не используется в этом режиме
+        dry_run_count = 0
+    else:
+        # Dry-run режим: все обработанные – симуляции
+        dry_run_count = sent_or_planned
+        applied_count = 0
+        error_count = 0
 
     print("\n" + "=" * 60)
     print("📊 ИТОГИ ЗАПУСКА")
@@ -1723,20 +1734,24 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
     print(f"Обработано:                 {sent_or_planned}")
     if args.apply:
         print(f"Отправлено откликов:       {applied_count}")
-        print(f"Ошибок/пропусков:          {sent_or_planned - applied_count}")
+        print(f"Ошибок:                    {error_count}")
     else:
         print(f"Симуляций (dry-run):       {dry_run_count}")
     print("=" * 60)
 
+    # Формируем сообщение для Telegram
     if vacancies:
         msg_lines = [
             "✅ <b>Поиск завершён.</b>",
             f"Найдено вакансий: {total_found}",
-            f"Отправлено откликов: {applied_count}",
-            f"Симуляций (dry-run): {dry_run_count}",
-            f"Лимит: {max_per_run}",
-            f"Время: {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         ]
+        if args.apply:
+            msg_lines.append(f"Отправлено откликов: {applied_count}")
+            msg_lines.append(f"Ошибок: {error_count}")
+        else:
+            msg_lines.append(f"Симуляций (dry-run): {dry_run_count}")
+        msg_lines.append(f"Лимит: {max_per_run}")
+        msg_lines.append(f"Время: {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         if applied_details:
             msg_lines.append("")
@@ -1751,14 +1766,17 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
             if len(applied_details) > max_display:
                 msg_lines.append(f"... и ещё {len(applied_details) - max_display} откликов")
         else:
-            msg_lines.append("")
-            msg_lines.append("⚠️ Откликов не отправлено.")
+            if args.apply:
+                msg_lines.append("")
+                msg_lines.append("⚠️ Откликов не отправлено (все попытки завершились ошибкой).")
+            else:
+                msg_lines.append("")
+                msg_lines.append("⚠️ Откликов не отправлено (режим симуляции).")
 
         full_msg = "\n".join(msg_lines)
         send_telegram_notification(full_msg, parse_mode="HTML")
     else:
         send_telegram_notification("⚠️ Поиск не нашёл новых вакансий.", parse_mode="HTML")
-
 
 def run_schedule(config: dict[str, Any], args: argparse.Namespace) -> None:
     run_times = get_nested(config, "schedule.run_times", ["09:30", "18:30"])
@@ -1772,7 +1790,6 @@ def run_schedule(config: dict[str, Any], args: argparse.Namespace) -> None:
         print(f"Next run at {next_at:%Y-%m-%d %H:%M:%S}")
         time.sleep(sleep_for)
         run_once(config, args)
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="HH.ru auto apply helper")
