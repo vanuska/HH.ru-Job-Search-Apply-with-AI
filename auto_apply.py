@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HH.ru auto search and response helper with interactive model selection github.com/vanuska.
+Основонй скрипт для поиска и откликов на HH.ru основа взята из hh_auto_apply, github.com/vanuska.
 """
 
 from __future__ import annotations
