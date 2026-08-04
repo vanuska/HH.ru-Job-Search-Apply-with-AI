@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram
+Скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram.
+Сохраняет в БД детали чата: компанию, вакансию, превью.
 """
 
 import argparse
@@ -48,6 +49,7 @@ def get_nested(config: dict[str, Any], path: str, default: Any) -> Any:
 
 
 def init_db(path: Path) -> sqlite3.Connection:
+    """Инициализирует базу данных, создавая необходимые таблицы."""
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.execute(
@@ -77,7 +79,10 @@ def init_db(path: Path) -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS chat_notifications (
             chat_id TEXT PRIMARY KEY,
-            sent_at TEXT NOT NULL
+            sent_at TEXT NOT NULL,
+            company TEXT,
+            vacancy_title TEXT,
+            preview TEXT
         )
         """
     )
@@ -247,7 +252,7 @@ def check_chat_updates(config: dict[str, Any], conn: sqlite3.Connection | None =
                         print("Не удалось определить chat_id, пропускаем.")
                         continue
 
-                    # Проверяем, было ли уже отправлено уведомление об этом чате за последние 7 дней (10080 минут)
+                    # Проверяем, было ли уже отправлено уведомление об этом чате за последние 7 дней
                     row = conn.execute(
                         "SELECT sent_at FROM chat_notifications WHERE chat_id = ? AND sent_at > datetime('now', '-7 days')",
                         (chat_id,)
@@ -277,10 +282,12 @@ def check_chat_updates(config: dict[str, Any], conn: sqlite3.Connection | None =
                     if item['preview']:
                         msg_lines.append(f"Превью: {item['preview'][:100]}...")
                     msg_lines.append("")
-                    # Записываем в БД
+                    # Записываем в БД с дополнительными полями
                     conn.execute(
-                        "INSERT OR REPLACE INTO chat_notifications (chat_id, sent_at) VALUES (?, datetime('now'))",
-                        (item['chat_id'],)
+                        """INSERT OR REPLACE INTO chat_notifications 
+                           (chat_id, sent_at, company, vacancy_title, preview) 
+                           VALUES (?, datetime('now'), ?, ?, ?)""",
+                        (item['chat_id'], item['company'], item['vacancy'], item['preview'])
                     )
                     print(f"Записано уведомление для чата {item['chat_id']} в {dt.datetime.now()}")
                 conn.commit()
