@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Инструмент для настройки и управления job-search
+Основной скрипт
 """
 
 import os
@@ -274,7 +274,7 @@ chat_check:
             items.append((base,     "Настройка Telegram бота для уведомлений (один раз)", self._step_setup_telegram))
             items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
             items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
-            items.append((base+3,   "Выбор доступных LLM", self._step_check_models))
+            items.append((base+3,   "Выбор доступных LLM (OpenRouter)", self._step_check_models))
             items.append((base+4,   "Настройка конфигурации запросов (config.yaml)", self._step_setup_config))
             items.append((base+5,   "Настройка вопросов и ответов для откликов (application_questions.yaml)", self._step_setup_application_questions))
             items.append((base+6,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
