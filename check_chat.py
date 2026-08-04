@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram.
+Скрипт для проверки чатов HH.ru и отправки уведомлений в Telegram
 """
 
 import argparse
