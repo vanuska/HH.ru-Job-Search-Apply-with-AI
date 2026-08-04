@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HH.ru auto search and response helper with interactive model selection.
+HH.ru auto search and response helper with interactive model selection github.com/vanuska.
 """
 
 from __future__ import annotations
@@ -241,8 +241,8 @@ def test_model_with_sample_letter(llm: LlmConfig, model: str, profile: str) -> t
             temperature=0.7,
             max_tokens=200,
             extra_headers={
-                "HTTP-Referer": "https://github.com/vanuska/hh-auto-apply-AI-CL",
-                "X-Title": "hh-auto-apply-AI-CL",
+                "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                "X-Title": "HH.ru-Job-Search-Apply-with-AI",
             },
         )
         raw_text = (response.choices[0].message.content or "").strip()
@@ -1052,8 +1052,8 @@ def generate_openrouter_letter(llm: LlmConfig, system: str, user: str, vacancy: 
             temperature=0.7,
             max_tokens=600,
             extra_headers={
-                "HTTP-Referer": "https://github.com/vanuska/hh-auto-apply-AI-CL",
-                "X-Title": "hh-auto-apply-AI-CL",
+                "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                "X-Title": "HH.ru-Job-Search-Apply-with-AI",
             },
         )
         raw_text = (response.choices[0].message.content or "").strip()
@@ -1250,8 +1250,8 @@ def generate_answers_for_questions(
                 temperature=0.3,
                 max_tokens=len(questions) * 200,
                 extra_headers={
-                    "HTTP-Referer": "https://github.com/vanuska/hh-auto-apply-AI-CL",
-                    "X-Title": "hh-auto-apply-AI-CL",
+                    "HTTP-Referer": "https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI",
+                    "X-Title": "HH.ru-Job-Search-Apply-with-AI",
                 },
             )
             raw = response.choices[0].message.content or ""
