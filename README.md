@@ -8,7 +8,7 @@
 Бесплатные модели могут не корректно работать с русским или вообще, в моменте, не работать, для этого происходит проерка каждой ИИ модели до бовевого запуска, в случае ошибок или если никакая модель не подойдёт, будет использован фолбэк отклик из auto_apply. 
 
 <div align="center">
-<img width="560" height="538" alt="image" src="https://github.com/user-attachments/assets/914fba09-b24d-485d-beb7-90b73ebd97c8" />
+<img width="560" height="638" alt="image" src="https://github.com/user-attachments/assets/b84ce3fd-8943-4e45-9b4e-ba9232016a91" />
 </div>
 <br>
 <div align="center">
