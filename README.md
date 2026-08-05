@@ -488,3 +488,7 @@ application_questions.yaml:
 ## Благодарности
 
 Авторам материнского скрипта hh_auto_apply
+
+<div align="center">
+<img width="124" height="124" alt="image" src="https://github.com/user-attachments/assets/32a554fa-8266-409d-8a81-d3ce1b3decfd" />
+</div>
