@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Основонй скрипт
+Инструмент для настройки и управления job-search
 """
 
 import os
@@ -140,6 +140,16 @@ class SetupTool:
         self.setup_done = SETUP_DONE_FILE.exists()
         self.config = None
         self._load_config()
+        
+        # Кеш для следующего времени запуска
+        self._next_run_auto = None
+        self._next_run_chat = None
+        self._last_status_update = 0
+        self._status_cache = {
+            "auto_apply": {"pid": None, "running": False},
+            "check_chat": {"pid": None, "running": False},
+        }
+        self._calculate_next_runs()
 
     def _load_config(self):
         """Загружает config.yaml для использования в расчёте расписания"""
@@ -152,6 +162,66 @@ class SetupTool:
                 self.config = None
         else:
             self.config = None
+
+    def _calculate_next_runs(self):
+        """Вычисляет время следующего запуска для auto_apply и check_chat"""
+        now = dt.datetime.now()
+        
+        # 1. Для auto_apply (schedule.run_times)
+        if self.config:
+            run_times = self.config.get("schedule", {}).get("run_times", [])
+            if run_times and isinstance(run_times, list):
+                candidates = []
+                for t in run_times:
+                    try:
+                        parts = str(t).split(":")
+                        if len(parts) == 2:
+                            hour, minute = int(parts[0]), int(parts[1])
+                            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                            if candidate <= now:
+                                candidate += dt.timedelta(days=1)
+                            candidates.append(candidate)
+                    except:
+                        pass
+                if candidates:
+                    self._next_run_auto = min(candidates)
+                else:
+                    self._next_run_auto = None
+            else:
+                self._next_run_auto = None
+        else:
+            self._next_run_auto = None
+
+        # 2. Для check_chat (chat_check.schedule или chat_check.interval_minutes)
+        if self.config:
+            chat_config = self.config.get("chat_check", {})
+            schedule = chat_config.get("schedule")
+            interval_minutes = chat_config.get("interval_minutes")
+            
+            if schedule and isinstance(schedule, list) and len(schedule) > 0:
+                candidates = []
+                for t in schedule:
+                    try:
+                        parts = str(t).split(":")
+                        if len(parts) == 2:
+                            hour, minute = int(parts[0]), int(parts[1])
+                            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                            if candidate <= now:
+                                candidate += dt.timedelta(days=1)
+                            candidates.append(candidate)
+                    except:
+                        pass
+                if candidates:
+                    self._next_run_chat = min(candidates)
+                else:
+                    self._next_run_chat = None
+            elif interval_minutes and isinstance(interval_minutes, (int, float)) and interval_minutes > 0:
+                # Интервал: следующее выполнение через interval минут от текущего времени
+                self._next_run_chat = now + dt.timedelta(minutes=interval_minutes)
+            else:
+                self._next_run_chat = now + dt.timedelta(minutes=30)  # значение по умолчанию
+        else:
+            self._next_run_chat = None
 
     def _check_gui(self):
         if not self.is_linux:
@@ -319,6 +389,7 @@ chat_check:
         print("Рекомендуется выполнять шаги по порядку")
         print("=" * 70)
         self._check_files_status()
+        self._update_status_cache()
         self._show_background_status()
         print(f"\nОС: {'Linux' if self.is_linux else 'Windows/Mac'}")
         print(f"Графический интерфейс: {'Есть' if self.has_gui else 'Отсутствует (сервер)'}")
@@ -342,13 +413,46 @@ chat_check:
             print(f"  {label} {path}: {status}")
         print()
 
-    def _show_background_status(self):
-        """Выводит статус фоновых процессов (auto_apply и check_chat)"""
-        print("\nФоновые процессы:")
-        # auto_apply
+    def _update_status_cache(self):
+        """Обновляет кеш статуса процессов (не чаще 1 раза в секунду)"""
+        now = time.time()
+        if now - self._last_status_update < 1.0:
+            return
+        
+        self._last_status_update = now
+        
+        # Проверяем auto_apply
         if self._is_schedule_running(PID_FILE):
             pid = self._read_pid(PID_FILE)
-            next_run = self._get_next_run_time("schedule.run_times")
+            self._status_cache["auto_apply"]["pid"] = pid
+            self._status_cache["auto_apply"]["running"] = True
+        else:
+            self._status_cache["auto_apply"]["pid"] = None
+            self._status_cache["auto_apply"]["running"] = False
+
+        # Проверяем check_chat
+        if self._is_schedule_running(CHAT_PID_FILE):
+            pid = self._read_pid(CHAT_PID_FILE)
+            self._status_cache["check_chat"]["pid"] = pid
+            self._status_cache["check_chat"]["running"] = True
+        else:
+            self._status_cache["check_chat"]["pid"] = None
+            self._status_cache["check_chat"]["running"] = False
+
+    def _read_pid(self, pid_file: Path) -> int | None:
+        try:
+            return int(pid_file.read_text().strip())
+        except:
+            return None
+
+    def _show_background_status(self):
+        """Выводит статус фоновых процессов с временем следующего запуска"""
+        print("\nФоновые процессы:")
+        
+        # auto_apply
+        if self._status_cache["auto_apply"]["running"]:
+            pid = self._status_cache["auto_apply"]["pid"]
+            next_run = self._next_run_auto
             if next_run:
                 time_str = next_run.strftime("%H:%M:%S")
                 print(f"  ✅ auto_apply.py (PID: {pid}) — работает, следующая проверка в {time_str}")
@@ -358,9 +462,9 @@ chat_check:
             print("  ❌ auto_apply.py — не запущен")
 
         # check_chat
-        if self._is_schedule_running(CHAT_PID_FILE):
-            pid = self._read_pid(CHAT_PID_FILE)
-            next_run = self._get_next_run_time("chat_check.schedule", fallback_interval=30)
+        if self._status_cache["check_chat"]["running"]:
+            pid = self._status_cache["check_chat"]["pid"]
+            next_run = self._next_run_chat
             if next_run:
                 time_str = next_run.strftime("%H:%M:%S")
                 print(f"  ✅ check_chat.py (PID: {pid}) — работает, следующая проверка в {time_str}")
@@ -370,53 +474,14 @@ chat_check:
             print("  ❌ check_chat.py — не запущен")
         print()
 
-    def _read_pid(self, pid_file: Path) -> int | None:
-        try:
-            return int(pid_file.read_text().strip())
-        except:
-            return None
-
-    def _get_next_run_time(self, config_key: str, fallback_interval: int = None) -> dt.datetime | None:
-        """Возвращает ближайшее время следующего запуска на основе config.yaml"""
-        if not self.config:
-            return None
-        parts = config_key.split(".")
-        current = self.config
-        for key in parts:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return None
-        if isinstance(current, list) and len(current) > 0:
-            # Список времен (schedule)
-            now = dt.datetime.now()
-            candidates = []
-            for t in current:
-                try:
-                    hour, minute = map(int, str(t).split(":"))
-                    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                    if candidate <= now:
-                        candidate += dt.timedelta(days=1)
-                    candidates.append(candidate)
-                except:
-                    pass
-            if candidates:
-                return min(candidates)
-        elif isinstance(current, (int, float)) and current > 0:
-            # Интервал (interval_minutes)
-            now = dt.datetime.now()
-            # Вычисляем ближайшее время кратно интервалу от начала текущего дня
-            # Для простоты вернём now + интервал (приближённо)
-            # Но точнее: ближайшее время, когда (минуты с начала дня) % interval == 0
-            # Реализуем простое приближение: следующее выполнение через interval минут
-            return now + dt.timedelta(minutes=current)
-        return None
-
     def run_step(self, step_number: int):
         for num, desc, method in self.get_menu_items():
             if num == step_number:
                 try:
                     method()
+                    # После выполнения шага пересчитываем расписание и обновляем статус
+                    self._load_config()
+                    self._calculate_next_runs()
                     input("\nНажмите Enter для продолжения...")
                 except Exception as e:
                     print(f"\nОшибка при выполнении шага {step_number}: {e}")
