@@ -1712,14 +1712,13 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
             playwright.stop()
         conn.close()
 
-        total_found = len(vacancies)
-    
+    total_found = len(vacancies)
+
     # Подсчёт статистики в зависимости от режима
     if args.apply:
         # Реальный режим: отдельно успешные и ошибки
         applied_count = len(applied_details)
         error_count = sent_or_planned - applied_count  # все неудачные попытки (включая ошибки отправки)
-        # dry_run_count не используется в этом режиме
         dry_run_count = 0
     else:
         # Dry-run режим: все обработанные – симуляции
@@ -1778,6 +1777,7 @@ def run_once(config: dict[str, Any], args: argparse.Namespace) -> None:
     else:
         send_telegram_notification("⚠️ Поиск не нашёл новых вакансий.", parse_mode="HTML")
 
+
 def run_schedule(config: dict[str, Any], args: argparse.Namespace) -> None:
     run_times = get_nested(config, "schedule.run_times", ["09:30", "18:30"])
     if not isinstance(run_times, list) or not run_times:
@@ -1790,6 +1790,7 @@ def run_schedule(config: dict[str, Any], args: argparse.Namespace) -> None:
         print(f"Next run at {next_at:%Y-%m-%d %H:%M:%S}")
         time.sleep(sleep_for)
         run_once(config, args)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="HH.ru auto apply helper")
@@ -1804,6 +1805,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    # Принудительно устанавливаем UTF-8 для Windows-консоли,
+    # чтобы корректно отображались эмодзи и русские буквы.
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except AttributeError:
+            # Для старых версий Python (до 3.7)
+            import io
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     load_dotenv()
     args = parse_args()
 
