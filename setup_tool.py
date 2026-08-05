@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Основной скрипт
+Основонй скрипт
 """
 
 import os
@@ -14,6 +14,9 @@ import signal
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import datetime as dt
+
+import yaml
 
 ROOT_DIR = Path(__file__).resolve().parent
 MODULES_DIR = ROOT_DIR / "modules"
@@ -115,14 +118,14 @@ CORE_SCRIPTS = [
     "clean_db.py",
     "test_letter.py",
     "requirements.txt",
-    "check_chat.py",      # новый скрипт для проверки чатов
+    "check_chat.py",
 ]
 CONFIG_EXAMPLE = "config.example.yaml"
 
 PID_FILE = DATA_DIR / "auto_apply.pid"
-CHAT_PID_FILE = DATA_DIR / "check_chat.pid"   # отдельный PID-файл для check_chat
+CHAT_PID_FILE = DATA_DIR / "check_chat.pid"
 LOG_FILE = DATA_DIR / "auto_apply_schedule.log"
-CHAT_LOG_FILE = DATA_DIR / "check_chat_schedule.log"   # отдельный лог для check_chat
+CHAT_LOG_FILE = DATA_DIR / "check_chat_schedule.log"
 
 
 class SetupTool:
@@ -135,6 +138,20 @@ class SetupTool:
         self._ensure_directories()
         self._copy_missing_files()
         self.setup_done = SETUP_DONE_FILE.exists()
+        self.config = None
+        self._load_config()
+
+    def _load_config(self):
+        """Загружает config.yaml для использования в расчёте расписания"""
+        config_path = MY_DIR / "config.yaml"
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    self.config = yaml.safe_load(f)
+            except:
+                self.config = None
+        else:
+            self.config = None
 
     def _check_gui(self):
         if not self.is_linux:
@@ -169,7 +186,6 @@ class SetupTool:
                 shutil.copy2(example_src, config_dst)
                 print(f"Создан config.yaml из примера в {config_dst}")
             else:
-                # Минимальный конфиг по умолчанию с добавленным разделом chat_check
                 base_config = """vacancies:
   keywords: []
   required_title_words_any: []
@@ -205,8 +221,8 @@ schedule:
   run_times: ["09:30", "18:30"]
 
 chat_check:
-  # schedule: ["10:00", "14:00", "18:00"]   # конкретное время
-  interval_minutes: 30                     # или интервал в минутах
+  # schedule: ["10:00", "14:00", "18:00"]
+  interval_minutes: 30
 """
                 config_dst.write_text(base_config, encoding="utf-8")
                 print(f"Создан минимальный config.yaml в {config_dst}")
@@ -274,7 +290,7 @@ chat_check:
             items.append((base,     "Настройка Telegram бота для уведомлений (один раз)", self._step_setup_telegram))
             items.append((base+1,   "Авторизация на HH.ru с сохранением сессии (один раз)", self._step_hh_login))
             items.append((base+2,   "Выбор и настройка LLM (env)", self._step_setup_env))
-            items.append((base+3,   "Выбор доступных LLM (OpenRouter)", self._step_check_models))
+            items.append((base+3,   "Выбор доступных LLM", self._step_check_models))
             items.append((base+4,   "Настройка конфигурации запросов (config.yaml)", self._step_setup_config))
             items.append((base+5,   "Настройка вопросов и ответов для откликов (application_questions.yaml)", self._step_setup_application_questions))
             items.append((base+6,   "Импорт резюме для AI Cover Letter", self._step_create_profile))
@@ -303,6 +319,7 @@ chat_check:
         print("Рекомендуется выполнять шаги по порядку")
         print("=" * 70)
         self._check_files_status()
+        self._show_background_status()
         print(f"\nОС: {'Linux' if self.is_linux else 'Windows/Mac'}")
         print(f"Графический интерфейс: {'Есть' if self.has_gui else 'Отсутствует (сервер)'}")
         if self.is_linux and not self.has_gui:
@@ -324,6 +341,76 @@ chat_check:
             status = "OK" if full.exists() else "MISSING"
             print(f"  {label} {path}: {status}")
         print()
+
+    def _show_background_status(self):
+        """Выводит статус фоновых процессов (auto_apply и check_chat)"""
+        print("\nФоновые процессы:")
+        # auto_apply
+        if self._is_schedule_running(PID_FILE):
+            pid = self._read_pid(PID_FILE)
+            next_run = self._get_next_run_time("schedule.run_times")
+            if next_run:
+                time_str = next_run.strftime("%H:%M:%S")
+                print(f"  ✅ auto_apply.py (PID: {pid}) — работает, следующая проверка в {time_str}")
+            else:
+                print(f"  ✅ auto_apply.py (PID: {pid}) — работает")
+        else:
+            print("  ❌ auto_apply.py — не запущен")
+
+        # check_chat
+        if self._is_schedule_running(CHAT_PID_FILE):
+            pid = self._read_pid(CHAT_PID_FILE)
+            next_run = self._get_next_run_time("chat_check.schedule", fallback_interval=30)
+            if next_run:
+                time_str = next_run.strftime("%H:%M:%S")
+                print(f"  ✅ check_chat.py (PID: {pid}) — работает, следующая проверка в {time_str}")
+            else:
+                print(f"  ✅ check_chat.py (PID: {pid}) — работает")
+        else:
+            print("  ❌ check_chat.py — не запущен")
+        print()
+
+    def _read_pid(self, pid_file: Path) -> int | None:
+        try:
+            return int(pid_file.read_text().strip())
+        except:
+            return None
+
+    def _get_next_run_time(self, config_key: str, fallback_interval: int = None) -> dt.datetime | None:
+        """Возвращает ближайшее время следующего запуска на основе config.yaml"""
+        if not self.config:
+            return None
+        parts = config_key.split(".")
+        current = self.config
+        for key in parts:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return None
+        if isinstance(current, list) and len(current) > 0:
+            # Список времен (schedule)
+            now = dt.datetime.now()
+            candidates = []
+            for t in current:
+                try:
+                    hour, minute = map(int, str(t).split(":"))
+                    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if candidate <= now:
+                        candidate += dt.timedelta(days=1)
+                    candidates.append(candidate)
+                except:
+                    pass
+            if candidates:
+                return min(candidates)
+        elif isinstance(current, (int, float)) and current > 0:
+            # Интервал (interval_minutes)
+            now = dt.datetime.now()
+            # Вычисляем ближайшее время кратно интервалу от начала текущего дня
+            # Для простоты вернём now + интервал (приближённо)
+            # Но точнее: ближайшее время, когда (минуты с начала дня) % interval == 0
+            # Реализуем простое приближение: следующее выполнение через interval минут
+            return now + dt.timedelta(minutes=current)
+        return None
 
     def run_step(self, step_number: int):
         for num, desc, method in self.get_menu_items():
@@ -1474,19 +1561,6 @@ chat_check:
             config_file.write_text(base_config, encoding="utf-8")
             print("Базовый config.yaml создан. Рекомендуется настроить его через соответствующий пункт меню.")
 
-        if self._is_schedule_running(PID_FILE):
-            print("\nОбнаружен запущенный процесс auto_apply.py (PID из файла).")
-            choice = input("Остановить его и запустить новый? (Y/N): ").strip().upper()
-            if choice in ["Y", "ДА"]:
-                self._stop_schedule_process(PID_FILE)
-                if PID_FILE.exists():
-                    PID_FILE.unlink()
-                print("Процесс остановлен.")
-            else:
-                print("Продолжаем с существующим процессом.")
-                input("Нажмите Enter для возврата в меню...")
-                return
-
         # Чтение настроек из config.yaml
         if config_file.exists():
             try:
@@ -1561,14 +1635,74 @@ chat_check:
         print("4. Prod-run (расписание, отклики, браузер видимый)")
         print("5. Prod-run (расписание, отклики, браузер в фоне)")
         print("6. Запустить проверку чатов в фоне (отдельный процесс)")
+        print("7. Остановить расписание (остановить все фоновые процессы)")
+        print("8. Выход")
         print("-" * 50)
         print(f"Текущий лимит: {current_limit}")
         print(f"Текущее расписание: {', '.join(current_schedule)}")
         print()
 
-        mode = input("Выберите режим (1-6): ").strip()
+        mode = input("Выберите режим (1-8): ").strip()
 
-        # Работа с моделью
+        # Обработка специальных режимов 7 и 8
+        if mode == "7":
+            # Остановить все фоновые процессы
+            print("\nОстановка всех фоновых процессов...")
+            stopped = False
+            for pid_file, name in [(PID_FILE, "auto_apply.py"), (CHAT_PID_FILE, "check_chat.py")]:
+                if self._is_schedule_running(pid_file):
+                    self._stop_schedule_process(pid_file)
+                    if pid_file.exists():
+                        pid_file.unlink()
+                    stopped = True
+                    print(f"  ✅ {name} остановлен")
+                else:
+                    print(f"  ⏸️ {name} не запущен")
+            if not stopped:
+                print("  Нет активных фоновых процессов.")
+            input("\nНажмите Enter для возврата...")
+            return
+
+        if mode == "8":
+            # Выход из шага
+            return
+
+        # Проверка наличия запущенного процесса для выбранного режима
+        if mode in ["1", "2", "3", "4", "5"]:
+            pid_file = PID_FILE
+            process_name = "auto_apply.py"
+            if self._is_schedule_running(pid_file):
+                print(f"\nОбнаружен запущенный процесс {process_name} (PID из файла).")
+                choice = input("Остановить его и запустить новый? (Y/N): ").strip().upper()
+                if choice in ["Y", "ДА"]:
+                    self._stop_schedule_process(pid_file)
+                    if pid_file.exists():
+                        pid_file.unlink()
+                    print("Процесс остановлен.")
+                else:
+                    print("Продолжаем с существующим процессом.")
+                    input("Нажмите Enter для возврата в меню...")
+                    return
+        elif mode == "6":
+            pid_file = CHAT_PID_FILE
+            process_name = "check_chat.py"
+            if self._is_schedule_running(pid_file):
+                print(f"\nОбнаружен запущенный процесс {process_name} (PID из файла).")
+                choice = input("Остановить его и запустить новый? (Y/N): ").strip().upper()
+                if choice in ["Y", "ДА"]:
+                    self._stop_schedule_process(pid_file)
+                    if pid_file.exists():
+                        pid_file.unlink()
+                    print("Процесс остановлен.")
+                else:
+                    print("Продолжаем с существующим процессом.")
+                    input("Нажмите Enter для возврата в меню...")
+                    return
+        else:
+            print("Неверный выбор. Возврат в меню.")
+            return
+
+        # Работа с моделью (только для режимов auto_apply, кроме 6)
         env_path = self.root_dir / ".env"
         current_model = None
         if env_path.exists():
@@ -1580,44 +1714,50 @@ chat_check:
         is_schedule = mode in ["4", "5"]
         is_chat_schedule = mode == "6"
 
-        if is_schedule:
-            print("\nДля запуска по расписанию необходимо выбрать модель, которая будет использоваться постоянно.")
-            print("Сейчас будет выполнена проверка доступных моделей через OpenRouter.")
-            print("После проверки вы сможете выбрать модель, и она будет записана в .env.")
+        # Для режима 6 не трогаем модель
+        if not is_chat_schedule:
+            if is_schedule:
+                print("\nДля запуска по расписанию необходимо выбрать модель, которая будет использоваться постоянно.")
+                print("Сейчас будет выполнена проверка доступных моделей через OpenRouter.")
+                print("После проверки вы сможете выбрать модель, и она будет записана в .env.")
 
-            env_content = env_path.read_text(encoding='utf-8') if env_path.exists() else ""
-            api_key_match = re.search(r'^OPENROUTER_API_KEY=(.*)$', env_content, re.MULTILINE)
-            api_key = api_key_match.group(1).strip() if api_key_match else None
-            if not api_key or api_key == "none":
-                print("\nОШИБКА: в .env не указан OPENROUTER_API_KEY или он равен 'none'.")
-                print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 4).")
-                input("Нажмите Enter для продолжения...")
-                return
+                env_content = env_path.read_text(encoding='utf-8') if env_path.exists() else ""
+                api_key_match = re.search(r'^OPENROUTER_API_KEY=(.*)$', env_content, re.MULTILINE)
+                api_key = api_key_match.group(1).strip() if api_key_match else None
+                if not api_key or api_key == "none":
+                    print("\nОШИБКА: в .env не указан OPENROUTER_API_KEY или он равен 'none'.")
+                    print("Пожалуйста, сначала укажите API ключ в .env (например, через шаг 4).")
+                    input("Нажмите Enter для продолжения...")
+                    return
 
-            print("\nЗапуск check_models.py для отображения доступных моделей...")
-            self._run_script("check_models.py")
-            print("\nТеперь выберите модель, которую хотите использовать для расписания.")
-            print("Введите название модели (например, openrouter/free, openai/gpt-4o-mini, anthropic/claude-3.5-sonnet и т.д.)")
-            print("Если оставить пустым, будет использована openrouter/free.")
-            chosen_model = input("Название модели: ").strip()
-            if not chosen_model:
-                chosen_model = "openrouter/free"
-                print(f"Выбрана модель по умолчанию: {chosen_model}")
+                print("\nЗапуск check_models.py для отображения доступных моделей...")
+                self._run_script("check_models.py")
+                print("\nТеперь выберите модель, которую хотите использовать для расписания.")
+                print("Введите название модели (например, openrouter/free, openai/gpt-4o-mini, anthropic/claude-3.5-sonnet и т.д.)")
+                print("Если оставить пустым, будет использована openrouter/free.")
+                chosen_model = input("Название модели: ").strip()
+                if not chosen_model:
+                    chosen_model = "openrouter/free"
+                    print(f"Выбрана модель по умолчанию: {chosen_model}")
 
-            self._update_env_var("OPENROUTER_MODEL", chosen_model)
-            print(f"Модель {chosen_model} записана в .env как OPENROUTER_MODEL.")
-            extra_env = {"HH_AUTO_APPLY_NON_INTERACTIVE": "1"}
+                self._update_env_var("OPENROUTER_MODEL", chosen_model)
+                print(f"Модель {chosen_model} записана в .env как OPENROUTER_MODEL.")
+                extra_env = {"HH_AUTO_APPLY_NON_INTERACTIVE": "1"}
+            else:
+                # Режимы 1-3 (не расписание, не чат)
+                if current_model and current_model not in ["auto", "none"]:
+                    print(f"\nВНИМАНИЕ: в .env указана конкретная модель: {current_model}")
+                    print("Для режимов без расписания (1-3) рекомендуется использовать 'auto'")
+                    print("(тогда при каждом запуске будет предлагаться интерактивный выбор модели).")
+                    switch = input("Хотите переключить на 'auto'? (Y/N, Enter=N): ").strip().upper()
+                    if switch in ["Y", "ДА"]:
+                        self._update_env_var("OPENROUTER_MODEL", "auto")
+                        print("Модель переключена на auto.")
+                    else:
+                        print(f"Оставлена модель {current_model}.")
+                extra_env = {}
         else:
-            if current_model and current_model not in ["auto", "none"]:
-                print(f"\nВНИМАНИЕ: в .env указана конкретная модель: {current_model}")
-                print("Для режимов без расписания (1-3) рекомендуется использовать 'auto'")
-                print("(тогда при каждом запуске будет предлагаться интерактивный выбор модели).")
-                switch = input("Хотите переключить на 'auto'? (Y/N, Enter=N): ").strip().upper()
-                if switch in ["Y", "ДА"]:
-                    self._update_env_var("OPENROUTER_MODEL", "auto")
-                    print("Модель переключена на auto.")
-                else:
-                    print(f"Оставлена модель {current_model}.")
+            # Для режима 6 пропускаем всё, связанное с моделью
             extra_env = {}
 
         # Формирование аргументов
@@ -1674,7 +1814,6 @@ chat_check:
             background = input("Запустить процесс в фоновом режиме? (Y/N, Enter=Y): ").strip().upper()
             if background != "N":
                 if is_chat_schedule:
-                    # Запускаем check_chat.py с отдельным PID-файлом и логом
                     pid_file = CHAT_PID_FILE
                     log_file = CHAT_LOG_FILE
                     script_name = "check_chat.py"
@@ -1779,6 +1918,8 @@ chat_check:
             cmd.extend(args)
 
         env = os.environ.copy()
+        # Принудительно устанавливаем UTF-8 для всего вывода
+        env["PYTHONIOENCODING"] = "utf-8"
         if extra_env:
             env.update(extra_env)
 
@@ -1855,6 +1996,8 @@ chat_check:
         print("-" * 60)
 
         env = os.environ.copy()
+        # Принудительно устанавливаем UTF-8 для всего вывода
+        env["PYTHONIOENCODING"] = "utf-8"
         if extra_env:
             env.update(extra_env)
 
