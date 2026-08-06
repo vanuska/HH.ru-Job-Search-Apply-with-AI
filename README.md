@@ -1,6 +1,6 @@
 # HH-JOB-SEARCH-APPLY-AI-CL-TG: Полное руководство по использованию  (ИНСТРУКЦИЯ не содержит описание всего функционала, он постоянно дополняется...)
 <div align="center">
-  <img width="124" height="124" alt="image" src="https://github.com/user-attachments/assets/d4b2c572-9b48-4936-ae38-3fb09d782e7f" />
+  <img width="124" height="144" alt="image" src="https://github.com/user-attachments/assets/251b5292-5854-4fe9-969d-5e0c29f988c4" />
 </div>
 
 ## Общее описание
