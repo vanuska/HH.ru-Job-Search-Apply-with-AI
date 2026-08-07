@@ -220,7 +220,7 @@
 
 ### Клонирование репозитория и работа с проектом в Ubuntu
 
-- Перейдите в папку проекта:
+- Перейдите в папку проекта (пример):
   ``` bash
   cd /mnt/c/Users/Ваше_Имя/
   ```
@@ -230,15 +230,15 @@
   ```
 - Клонируйте репозиторий в текущую папку:
   ``` bash
-  git clone https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI.git
+  git clone https://github.com/vanuska/Match-My-Skills.git
   ```
 - Перейдите в папку:
   ``` bash
-  cd HH.ru-Job-Search-Apply-with-AI
+  cd Match-My-Skills
   ```
   или если уже создали папку, то в клонируйте в неё:
   ``` bash
-  git clone https://github.com/vanuska/HH.ru-Job-Search-Apply-with-AI.git .
+  git clone https://github.com/vanuska/Match-My-Skills.git .
   ``` 
 - Установите Python:
   ``` bash
