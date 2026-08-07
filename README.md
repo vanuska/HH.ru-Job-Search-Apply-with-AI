@@ -25,8 +25,10 @@
   
   `В разработке`
   
+</div>
 <div align="center">
 <img width="481" height="670" alt="image" src="https://github.com/user-attachments/assets/4c85c729-afe5-4ad9-85e0-7eb975017600" />
+  
 </div>
 
 
